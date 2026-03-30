@@ -622,7 +622,7 @@ function ShopTab({items, currentUser}){
   return(
     <div style={{maxWidth:520,margin:"0 auto",padding:"16px"}}>
       <div style={{marginBottom:20}}>
-        <div style={{fontFamily:"'Cinzel',serif",fontSize:18,fontWeight:700,color:C.cream,marginBottom:4}}>🛍 DTG Shop</div>
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:18,fontWeight:700,color:C.cream,marginBottom:4}}>⛳ DTG Shop</div>
         <div style={{fontSize:12,color:C.creamMuted}}>Gear we actually use and recommend</div>
       </div>
 
@@ -981,7 +981,7 @@ function DtgAdminPanel({courses, onSaveCourses, shopItems, onSaveShop, onClose})
 
         {/* Admin tabs */}
         <div style={{display:"flex",background:"rgba(13,32,16,.8)",borderRadius:12,padding:4,marginBottom:20,border:"1px solid rgba(42,107,52,.2)"}}>
-          {[{id:"courses",label:"⛳ Courses"},{id:"shop",label:"🛍 Shop"}].map(t=>(
+          {[{id:"courses",label:"⛳ Courses"},{id:"shop",label:"⛳ Shop"}].map(t=>(
             <button key={t.id} onClick={()=>setAdminTab(t.id)} style={{flex:1,padding:"10px",borderRadius:9,border:"none",cursor:"pointer",fontSize:13,fontWeight:600,background:adminTab===t.id?`linear-gradient(135deg,${C.gold},${C.goldDim})`:"transparent",color:adminTab===t.id?"#0a1a0c":C.creamMuted}}>
               {t.label}
             </button>
@@ -1772,7 +1772,7 @@ function HomeScreen({currentUser, onSelectGroup}){
 
         {/* Tabs */}
         <div style={{maxWidth:520,margin:"0 auto",display:"flex",borderTop:"1px solid rgba(42,107,52,.15)"}}>
-          {[{id:"feed",label:"⛳ Feed"},{id:"people",label:"👤 People"},{id:"shop",label:"🛍 Shop"},{id:"courses",label:"🗺 Courses"},{id:"groups",label:"👥 Groups"}].map(t=>(
+          {[{id:"feed",label:"⛳ Feed"},{id:"people",label:"👤 People"},{id:"shop",label:"⛳ Shop"},{id:"courses",label:"🗺 Courses"},{id:"groups",label:"👥 Groups"}].map(t=>(
             <button key={t.id} onClick={()=>setTab(t.id)} style={{flex:1,padding:"12px",background:"none",border:"none",cursor:"pointer",fontSize:12,fontWeight:600,color:tab===t.id?C.goldLight:C.creamMuted,borderBottom:tab===t.id?`2px solid ${C.gold}`:"2px solid transparent",transition:"all .15s"}}>
               {t.label}
             </button>
