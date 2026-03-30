@@ -128,6 +128,7 @@ function AuthScreen({onGuest}){
         const cred=await createUserWithEmailAndPassword(auth,email.trim(),pass);
         await updateProfile(cred.user,{displayName:name.trim()});
         await setDoc(doc(db,"users",cred.user.uid),{displayName:name.trim(),email:email.trim(),groupIds:[],createdAt:new Date().toISOString()});
+        await setDoc(doc(db,"dtg_users",cred.user.uid),{displayName:name.trim(),uid:cred.user.uid,createdAt:new Date().toISOString()});
       } else {
         await signInWithEmailAndPassword(auth,email.trim(),pass);
       }
@@ -1585,7 +1586,7 @@ function HomeScreen({currentUser, onSelectGroup}){
 
   async function saveFeed(posts){await setDoc(doc(db,"dtg_feed","posts"),{list:posts});}
 
-  // Load People You May Know when People tab is opened
+  // Load People You May Know + all users when People tab is opened
   async function loadSuggestions(){
     setSugsLoading(true);
     try {
@@ -1631,8 +1632,28 @@ function HomeScreen({currentUser, onSelectGroup}){
         return{...s,...(pd.exists()?pd.data():{displayName:"DTG Golfer"})};
       }));
 
-      setSuggestions(withProfiles);
-    } catch(e){console.error(e);}
+      // If no suggestions from connections, just show all users
+      if(withProfiles.length===0){
+        const [us, ps] = await Promise.all([
+          getDocs(collection(db,"users")),
+          getDocs(collection(db,"userProfiles")),
+        ]);
+        const pm={};
+        ps.docs.forEach(d=>{pm[d.id]={...d.data()};});
+        const all=us.docs
+          .map(d=>({uid:d.id,...d.data(),...(pm[d.id]||{})}))
+          .filter(p=>p.uid!==currentUser.uid);
+        setSuggestions(all);
+      } else {
+        setSuggestions(withProfiles);
+      }
+    } catch(e){
+      // Fallback — just load all users
+      try {
+        const us=await getDocs(collection(db,"users"));
+        setSuggestions(us.docs.map(d=>({uid:d.id,...d.data()})).filter(p=>p.uid!==currentUser.uid));
+      } catch(e2){console.error(e2);}
+    }
     setSugsLoading(false);
   }
 
@@ -1983,10 +2004,20 @@ export default function DTG(){
   const [guestMode,   setGuestMode]   = useState(false);
 
   useEffect(()=>{
-    return onAuthStateChanged(auth,(u)=>{
+    return onAuthStateChanged(auth,async(u)=>{
       setUser(u);
       setAuthLoading(false);
-      if(u) setGuestMode(false);
+      if(u){
+        setGuestMode(false);
+        // Always keep dtg_users index up to date
+        try{
+          await setDoc(doc(db,"dtg_users",u.uid),{
+            displayName:u.displayName||"",
+            uid:u.uid,
+            lastSeen:new Date().toISOString()
+          },{merge:true});
+        }catch(e){}
+      }
     });
   },[]);
 
