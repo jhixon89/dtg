@@ -2772,30 +2772,57 @@ function GameView({members, games, saveGames, currentUser}){
 
   // ── CREATE ──
   if(subView==="create") return(
-    <div className="fi">
+    <div className="fi" style={{paddingBottom:40}}>
       <button className="bh" onClick={()=>setSubView("list")} style={{background:"none",border:"none",color:C.creamMuted,fontSize:12,cursor:"pointer",letterSpacing:2,marginBottom:16}}>← BACK</button>
       <div style={{fontFamily:"'Cinzel',serif",fontSize:18,fontWeight:600,color:C.cream,marginBottom:20}}>NEW GAME</div>
-      <div style={{background:"rgba(13,32,16,.85)",border:"1px solid rgba(42,107,52,.25)",borderRadius:16,padding:"22px 20px",display:"flex",flexDirection:"column",gap:16}}>
-        <Field label="Course Name" error={gErrors.course}><input value={gCourse} onChange={e=>setGCourse(e.target.value)} placeholder="e.g. Juliette Falls" style={iStyle(gErrors.course)}/></Field>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
-          <Field label="Date"><input type="date" value={gDate} onChange={e=>setGDate(e.target.value)} style={{...iStyle(false),colorScheme:"dark"}}/></Field>
-          <Field label="Holes">
-            <div style={{display:"flex",gap:8}}>
-              {[9,18].map(n=><button key={n} onClick={()=>setGHoles(n)} style={{flex:1,padding:"11px",borderRadius:9,cursor:"pointer",fontSize:14,fontWeight:700,background:gHoles===n?`linear-gradient(135deg,${C.green},${C.greenLight})`:"rgba(5,14,6,.7)",border:gHoles===n?"1px solid rgba(77,184,96,.4)":"1px solid rgba(42,107,52,.3)",color:gHoles===n?C.cream:C.creamMuted}}>{n}</button>)}
-            </div>
-          </Field>
-        </div>
+      <div style={{background:"rgba(13,32,16,.85)",border:"1px solid rgba(42,107,52,.25)",borderRadius:16,padding:"20px 16px",display:"flex",flexDirection:"column",gap:16}}>
+
+        <Field label="Course Name" error={gErrors.course}>
+          <input value={gCourse} onChange={e=>setGCourse(e.target.value)} placeholder="e.g. Juliette Falls" style={iStyle(gErrors.course)}/>
+        </Field>
+
+        <Field label="Date">
+          <input type="date" value={gDate} onChange={e=>setGDate(e.target.value)} style={{...iStyle(false),colorScheme:"dark"}}/>
+        </Field>
+
+        <Field label="Holes">
+          <div style={{display:"flex",gap:10}}>
+            {[9,18].map(n=>(
+              <button key={n} onClick={()=>setGHoles(n)} style={{flex:1,padding:"13px",borderRadius:10,cursor:"pointer",fontSize:16,fontWeight:700,background:gHoles===n?`linear-gradient(135deg,${C.green},${C.greenLight})`:"rgba(5,14,6,.7)",border:gHoles===n?"1px solid rgba(77,184,96,.4)":"1px solid rgba(42,107,52,.3)",color:gHoles===n?C.cream:C.creamMuted}}>
+                {n} Holes
+              </button>
+            ))}
+          </div>
+        </Field>
+
         <Field label="Game Type">
-          <div style={{display:"flex",gap:8}}>
-            {[{v:"skins",l:"🎯 Skins"},{v:"nassau",l:"💰 Nassau"},{v:"both",l:"🎮 Both"}].map(t=><button key={t.v} onClick={()=>setGType(t.v)} style={{flex:1,padding:"10px 6px",borderRadius:9,cursor:"pointer",fontSize:12,fontWeight:600,background:gType===t.v?`linear-gradient(135deg,${C.green},${C.greenLight})`:"rgba(5,14,6,.7)",border:gType===t.v?"1px solid rgba(77,184,96,.4)":"1px solid rgba(42,107,52,.3)",color:gType===t.v?C.cream:C.creamMuted}}>{t.l}</button>)}
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {[{v:"skins",l:"🎯 Skins",desc:"Win holes, collect skins"},{v:"nassau",l:"💰 Nassau",desc:"Front 9, Back 9, Total"},{v:"both",l:"🎮 Skins + Nassau",desc:"Both games at once"}].map(t=>(
+              <button key={t.v} onClick={()=>setGType(t.v)} style={{padding:"12px 14px",borderRadius:10,cursor:"pointer",textAlign:"left",background:gType===t.v?`linear-gradient(135deg,${C.green},${C.greenLight})`:"rgba(5,14,6,.7)",border:gType===t.v?"1px solid rgba(77,184,96,.4)":"1px solid rgba(42,107,52,.3)",color:gType===t.v?C.cream:C.creamMuted}}>
+                <div style={{fontSize:14,fontWeight:600}}>{t.l}</div>
+                <div style={{fontSize:11,opacity:.75,marginTop:2}}>{t.desc}</div>
+              </button>
+            ))}
           </div>
         </Field>
-        <Field label="Players" error={gErrors.players}>
-          <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
-            {members.map(m=>{const sel=gPlayers.includes(m);return(<button key={m} onClick={()=>setGPlayers(sel?gPlayers.filter(p=>p!==m):[...gPlayers,m])} style={{padding:"8px 14px",borderRadius:20,cursor:"pointer",fontSize:12,fontWeight:600,background:sel?`linear-gradient(135deg,${C.green},${C.greenLight})`:"rgba(5,14,6,.7)",border:sel?"1px solid rgba(77,184,96,.4)":"1px solid rgba(42,107,52,.3)",color:sel?C.cream:C.creamMuted}}>{m}</button>);})}
+
+        <Field label="Select Players" error={gErrors.players}>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {members.map(m=>{
+              const sel=gPlayers.includes(m);
+              return(
+                <button key={m} onClick={()=>setGPlayers(sel?gPlayers.filter(p=>p!==m):[...gPlayers,m])} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px",borderRadius:10,cursor:"pointer",textAlign:"left",background:sel?`linear-gradient(135deg,rgba(26,77,36,.4),rgba(42,107,52,.3))`:"rgba(5,14,6,.7)",border:sel?"1px solid rgba(77,184,96,.4)":"1px solid rgba(42,107,52,.3)"}}>
+                  <div style={{width:32,height:32,borderRadius:8,background:avatarColor(m),display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:C.cream,fontFamily:"'Cinzel',serif",flexShrink:0}}>{initials(m)}</div>
+                  <span style={{fontSize:14,fontWeight:600,color:sel?C.cream:C.creamMuted,flex:1}}>{m}</span>
+                  {sel&&<span style={{fontSize:18,color:C.greenBright}}>✓</span>}
+                </button>
+              );
+            })}
           </div>
+          {gPlayers.length>0&&<div style={{fontSize:12,color:C.greenBright,marginTop:8}}>✓ {gPlayers.length} player{gPlayers.length!==1?"s":""} selected</div>}
         </Field>
-        <button className="bh" onClick={createGame} disabled={!gCourse.trim()||gPlayers.length<2} style={{background:gCourse.trim()&&gPlayers.length>=2?`linear-gradient(135deg,${C.gold},${C.goldDim})`:"rgba(60,60,60,.3)",border:"none",borderRadius:12,color:gCourse.trim()&&gPlayers.length>=2?"#0a1a0c":C.creamMuted,padding:"14px",fontSize:14,fontWeight:700,cursor:"pointer",letterSpacing:1,fontFamily:"'Cinzel',sans-serif"}}>START GAME 🎮</button>
+
+        <button className="bh" onClick={createGame} disabled={!gCourse.trim()||gPlayers.length<2} style={{background:gCourse.trim()&&gPlayers.length>=2?`linear-gradient(135deg,${C.gold},${C.goldDim})`:"rgba(60,60,60,.3)",border:"none",borderRadius:12,color:gCourse.trim()&&gPlayers.length>=2?"#0a1a0c":C.creamMuted,padding:"15px",fontSize:15,fontWeight:700,cursor:"pointer",letterSpacing:1,fontFamily:"'Cinzel',sans-serif",marginTop:4}}>START GAME 🎮</button>
       </div>
     </div>
   );
