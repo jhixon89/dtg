@@ -28,8 +28,8 @@ const auth = getAuth(app);
 const EMOJIS = ["🔥","👏","💀"];
 
 const CLUBS = [
-  "Driver","3 Wood","5 Wood","4 Hybrid","5 Hybrid",
-  "3 Iron","4 Iron","5 Iron","6 Iron","7 Iron","8 Iron","9 Iron",
+  "Driver","3 Wood","5 Wood","7 Wood","11 Wood","4 Hybrid",
+  "4 Iron","5 Iron","6 Iron","7 Iron","8 Iron","9 Iron",
   "Pitching Wedge","Gap Wedge","Sand Wedge","Lob Wedge"
 ];
 
@@ -2308,7 +2308,7 @@ function CaddyView({members,bags,saveBags}){
   const [bagSaved,  setBagSaved]  = useState(false);
 
   function save(key,val){localStorage.setItem(key,val);}
-  function getRollout(club,green){const base=(()=>{if(WEDGE_NAMES.includes(club))return 0;if(["9 Iron","8 Iron"].includes(club))return 0.05;if(["7 Iron","6 Iron","5 Iron"].includes(club))return 0.07;if(["4 Iron","3 Iron"].includes(club))return 0.09;if(["4 Hybrid","5 Hybrid"].includes(club))return 0.10;if(["3 Wood","5 Wood"].includes(club))return 0.13;if(club==="Driver")return 0.15;return 0.07;})();if(green==="firm")return base*1.5;if(green==="soft")return base*0.3;return base;}
+  function getRollout(club,green){const base=(()=>{if(WEDGE_NAMES.includes(club))return 0;if(["9 Iron","8 Iron"].includes(club))return 0.05;if(["7 Iron","6 Iron","5 Iron"].includes(club))return 0.07;if(["4 Iron","3 Iron"].includes(club))return 0.09;if(["4 Hybrid","5 Hybrid"].includes(club))return 0.10;if(["3 Wood","5 Wood","7 Wood","11 Wood"].includes(club))return 0.13;if(club==="Driver")return 0.15;return 0.07;})();if(green==="firm")return base*1.5;if(green==="soft")return base*0.3;return base;}
   function loadBag(name){setBagPlayer(name);const existing=bags[name.trim().toLowerCase()]||{};const filled={};CLUBS.forEach(c=>{filled[c]=existing[c]||"";});setBagDists(filled);setBagSaved(false);}
   async function saveBag(){if(!bagPlayer)return;const key=bagPlayer.trim().toLowerCase();const cleaned={};CLUBS.forEach(c=>{if(bagDists[c]&&!isNaN(bagDists[c])&&+bagDists[c]>0)cleaned[c]=+bagDists[c];});await saveBags({...bags,[key]:cleaned});setBagSaved(true);setTimeout(()=>setBagSaved(false),2500);}
   function calculate(){if(!player||!yardage)return;const key=player.trim().toLowerCase();const bag=bags[key]||{};if(!Object.keys(bag).length){setResult({error:true,name:player});return;}const adj=calcAdjusted(+yardage,wind,windMph,temp,lie);const ranked=CLUBS.filter(c=>bag[c]).map(c=>{const carry=bag[c],rollPct=getRollout(c,greenCond),rollYds=Math.round(carry*rollPct),total=carry+rollYds,effectiveDist=shotType==="total"?total:carry;return{club:c,carry,rollYds,total,diff:Math.abs(effectiveDist-adj),over:effectiveDist-adj};}).sort((a,b)=>a.diff-b.diff);const topClub=ranked[0]?.club;const wedgeTip=WEDGE_NAMES.includes(topClub)?WEDGE_TIPS[topClub]:null;const betweenClubs=ranked.length>=2&&Math.abs(ranked[0].diff-ranked[1].diff)<=5;setResult({adj,raw:+yardage,ranked,player,wind,windMph,temp,lie,greenCond,wedgeTip,topClub,shotType,betweenClubs});}
