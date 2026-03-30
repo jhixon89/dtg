@@ -444,7 +444,7 @@ function MatchPostCard({post, currentUser, onJoin, onLeave, onDelete, isOwner}){
             <div style={{fontFamily:"'Cinzel',serif",fontSize:15,fontWeight:700,color:C.cream,marginBottom:16}}>Who's In — {post.course||"This Round"}</div>
             {players.map((p,i)=>(
               <div key={p.uid} style={{display:"flex",alignItems:"center",gap:12,paddingBottom:14,marginBottom:14,borderBottom:i<players.length-1?"1px solid rgba(42,107,52,.15)":"none"}}>
-                <Avatar name={p.displayName} photo={p.photo||null} size={42} radius={21}/>
+                <Avatar name={p.displayName} photo={p.photo||null} size={52} radius={26}/>
                 <div style={{flex:1}}>
                   <div style={{fontWeight:600,fontSize:14,color:C.cream}}>{p.displayName}</div>
                   <div style={{fontSize:11,color:C.creamMuted,marginTop:2}}>Joined {formatAgo(p.joinedAt)}</div>
@@ -479,7 +479,7 @@ function MatchPostCard({post, currentUser, onJoin, onLeave, onDelete, isOwner}){
       )}
       {/* Author row */}
       <div style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px 8px"}}>
-        <Avatar name={post.authorName} photo={post.authorPhoto||null} size={36} radius={18}/>
+        <Avatar name={post.authorName} photo={post.authorPhoto||null} size={46} radius={23}/>
         <div style={{flex:1}}>
           <div style={{fontSize:13,fontWeight:600,color:C.cream}}>{post.authorName}</div>
           <div style={{fontSize:11,color:C.creamMuted}}>{formatAgo(post.createdAt)}</div>
@@ -491,7 +491,7 @@ function MatchPostCard({post, currentUser, onJoin, onLeave, onDelete, isOwner}){
 
       {/* Hero photo — full width, 4:5 ratio */}
       <div style={{position:"relative",cursor:"pointer"}} onClick={()=>setImgFull(true)}>
-        <img src={post.photo} alt="round" style={{width:"100%",aspectRatio:"4/5",objectFit:"cover",display:"block"}}/>
+        <img src={post.photo} alt="round" style={{width:"100%",aspectRatio:"4/3",objectFit:"cover",display:"block"}}/>
         {imgFull&&(
           <div onClick={e=>{e.stopPropagation();setImgFull(false);}} style={{position:"fixed",inset:0,zIndex:500,background:"rgba(0,0,0,.95)",display:"flex",alignItems:"center",justifyContent:"center",padding:16,cursor:"pointer"}}>
             <img src={post.photo} alt="full" className="pop" style={{maxWidth:"100%",maxHeight:"90vh",objectFit:"contain",borderRadius:8}}/>
@@ -589,7 +589,7 @@ function MatchPostCard({post, currentUser, onJoin, onLeave, onDelete, isOwner}){
           {cmts.length===0&&<div style={{fontSize:12,color:C.creamMuted,marginBottom:10}}>No comments yet</div>}
           {cmts.map(c=>(
             <div key={c.id} style={{display:"flex",gap:8,marginBottom:10,alignItems:"flex-start"}}>
-              <Avatar name={c.author} size={26} radius={13}/>
+              <Avatar name={c.author} size={32} radius={16}/>
               <div>
                 <span style={{fontSize:12,fontWeight:600,color:C.cream}}>{c.author} </span>
                 <span style={{fontSize:13,color:C.creamDim,lineHeight:1.5}}>{c.text}</span>
@@ -2107,14 +2107,14 @@ function GuestFeedScreen({onSignUp}){
         {!feedLoading&&sorted.map(post=>(
           <div key={post.id} style={{background:"#0a1a0c",borderTop:"1px solid rgba(42,107,52,.1)",marginBottom:2}}>
             <div style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px 8px"}}>
-              <Avatar name={post.authorName} photo={post.authorPhoto||null} size={36} radius={18}/>
+              <Avatar name={post.authorName} photo={post.authorPhoto||null} size={46} radius={23}/>
               <div style={{flex:1}}>
                 <div style={{fontSize:13,fontWeight:600,color:C.cream}}>{post.authorName}</div>
                 <div style={{fontSize:11,color:C.creamMuted}}>{formatAgo(post.createdAt)}</div>
               </div>
               {post.type==="match"&&<div style={{fontSize:10,background:"rgba(201,162,39,.15)",border:"1px solid rgba(201,162,39,.3)",borderRadius:6,padding:"2px 8px",color:C.goldLight}}>⛳ Open Round</div>}
             </div>
-            {post.photo&&<img src={post.photo} alt="post" style={{width:"100%",aspectRatio:post.type==="match"?"4/5":"auto",maxHeight:post.type==="regular"?400:undefined,objectFit:"cover",display:"block"}}/>}
+            {post.photo&&<img src={post.photo} alt="post" style={{width:"100%",aspectRatio:post.type==="match"?"4/3":"auto",maxHeight:post.type==="regular"?400:undefined,objectFit:"cover",display:"block"}}/>}
             <div style={{padding:"12px 14px"}}>
               {post.type==="match"&&(<>
                 <div style={{fontFamily:"'Cinzel',serif",fontSize:15,fontWeight:700,color:C.cream,marginBottom:4}}>{post.course}</div>
