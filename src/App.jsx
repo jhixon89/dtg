@@ -108,7 +108,7 @@ function StatBox({label,value,sub,highlight}){return(<div style={{background:"rg
 function Spinner(){return<div className="spin" style={{width:20,height:20,border:"2px solid rgba(77,184,96,.3)",borderTop:"2px solid #4db860",borderRadius:"50%",display:"inline-block"}}/>;}
 
 // ─── AUTH SCREEN ──────────────────────────────────────────────────────────────
-function AuthScreen(){
+function AuthScreen({onGuest}){
   const [mode,    setMode]    = useState("signin"); // signin | signup
   const [name,    setName]    = useState("");
   const [email,   setEmail]   = useState("");
@@ -141,8 +141,8 @@ function AuthScreen(){
         {/* Logo */}
         <div style={{textAlign:"center",marginBottom:36}}>
           <div style={{fontSize:52,marginBottom:12}}>⛳</div>
-          <div style={{fontFamily:"'Cinzel',serif",fontSize:28,fontWeight:700,letterSpacing:4,color:C.cream}}>DTG</div>
-          <div style={{fontSize:11,color:C.creamMuted,letterSpacing:6,textTransform:"uppercase",marginTop:4}}>Down To Golf</div>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:24,fontWeight:700,letterSpacing:3,color:C.cream}}>Down To Golf</div>
+          <div style={{fontSize:11,color:C.creamMuted,letterSpacing:4,textTransform:"uppercase",marginTop:4}}>Find golfers near you</div>
         </div>
 
         <div style={{background:"rgba(13,32,16,.9)",border:"1px solid rgba(42,107,52,.3)",borderRadius:20,padding:"32px 28px",boxShadow:"0 24px 80px rgba(0,0,0,.5)"}}>
@@ -175,7 +175,13 @@ function AuthScreen(){
             </button>
           </div>
         </div>
-        <div style={{textAlign:"center",marginTop:20,fontSize:12,color:C.creamMuted}}>dt.golf · Private golf groups for your crew</div>
+
+        {/* Guest browse option */}
+        <button className="bh" onClick={onGuest} style={{width:"100%",background:"none",border:"none",color:C.creamMuted,padding:"16px",fontSize:13,cursor:"pointer",textAlign:"center",marginTop:8}}>
+          Browse the feed without signing up →
+        </button>
+
+        <div style={{textAlign:"center",fontSize:12,color:C.creamMuted}}>dt.golf · Find golfers near you</div>
       </div>
     </div>
   );
@@ -334,9 +340,11 @@ function CreateRoundPostModal({currentUser, onPost, onClose}){
 
 // ─── MATCH POST CARD ──────────────────────────────────────────────────────────
 function MatchPostCard({post, currentUser, onJoin, onLeave, onDelete, isOwner}){
-  const [showCmts, setShowCmts] = useState(false);
-  const [imgFull,  setImgFull]  = useState(false);
-  const [cText,    setCText]    = useState("");
+  const [showCmts,  setShowCmts]  = useState(false);
+  const [imgFull,   setImgFull]   = useState(false);
+  const [cText,     setCText]     = useState("");
+  const [showMenu,  setShowMenu]  = useState(false);
+  const [confirmDel,setConfirmDel]= useState(false);
 
   const players = post.players||[];
   const totalSpots = post.totalSpots||4;
@@ -372,7 +380,24 @@ function MatchPostCard({post, currentUser, onJoin, onLeave, onDelete, isOwner}){
           <div style={{fontSize:11,color:C.creamMuted}}>{formatAgo(post.createdAt)}</div>
         </div>
         {isOwner&&!isExpired&&(
-          <button onClick={()=>onDelete(post.id)} style={{background:"none",border:"none",color:C.creamMuted,fontSize:18,cursor:"pointer",padding:"4px 8px"}}>⋯</button>
+          <div style={{position:"relative"}}>
+            <button onClick={()=>setShowMenu(v=>!v)} style={{background:"none",border:"none",color:C.creamMuted,fontSize:18,cursor:"pointer",padding:"4px 8px"}}>⋯</button>
+            {showMenu&&(
+              <div style={{position:"absolute",right:0,top:"100%",background:"#1a3a1e",border:"1px solid rgba(42,107,52,.4)",borderRadius:10,padding:"6px",zIndex:50,minWidth:140,boxShadow:"0 8px 24px rgba(0,0,0,.5)"}}>
+                {!confirmDel?(
+                  <button onClick={()=>setConfirmDel(true)} style={{display:"block",width:"100%",background:"none",border:"none",color:"#e07070",padding:"10px 14px",fontSize:13,cursor:"pointer",textAlign:"left",borderRadius:7}}>🗑 Delete Post</button>
+                ):(
+                  <div style={{padding:"8px 10px"}}>
+                    <div style={{fontSize:12,color:C.creamDim,marginBottom:8}}>Delete this post?</div>
+                    <div style={{display:"flex",gap:6}}>
+                      <button onClick={()=>{setShowMenu(false);setConfirmDel(false);}} style={{flex:1,background:"rgba(255,255,255,.05)",border:"none",borderRadius:7,color:C.creamMuted,padding:"7px",fontSize:12,cursor:"pointer"}}>Cancel</button>
+                      <button onClick={()=>{onDelete(post.id);setShowMenu(false);setConfirmDel(false);}} style={{flex:1,background:"rgba(192,64,64,.3)",border:"none",borderRadius:7,color:"#e08080",padding:"7px",fontSize:12,cursor:"pointer",fontWeight:600}}>Delete</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         )}
       </div>
 
@@ -806,14 +831,16 @@ function HomeScreen({currentUser, onSelectGroup}){
 
 // ─── ROOT ─────────────────────────────────────────────────────────────────────
 export default function DTG(){
-  const [user,         setUser]         = useState(null);
-  const [authLoading,  setAuthLoading]  = useState(true);
-  const [currentGroup, setCurrentGroup] = useState(null);
+  const [user,        setUser]        = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [currentGroup,setCurrentGroup]= useState(null);
+  const [guestMode,   setGuestMode]   = useState(false);
 
   useEffect(()=>{
     return onAuthStateChanged(auth,(u)=>{
       setUser(u);
       setAuthLoading(false);
+      if(u) setGuestMode(false);
     });
   },[]);
 
@@ -823,17 +850,115 @@ export default function DTG(){
         <style>{css}</style>
         <div style={{textAlign:"center"}}>
           <div style={{fontSize:52,marginBottom:16}}>⛳</div>
-          <div style={{fontFamily:"'Cinzel',serif",fontSize:28,fontWeight:700,letterSpacing:4,color:"#f5f0e8"}}>DTG</div>
-          <div style={{fontSize:11,color:"#7a7060",letterSpacing:5,marginTop:4,textTransform:"uppercase"}}>Down To Golf</div>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:24,fontWeight:700,letterSpacing:3,color:"#f5f0e8"}}>Down To Golf</div>
+          <div style={{fontSize:11,color:"#7a7060",letterSpacing:4,marginTop:4,textTransform:"uppercase"}}>Find golfers near you</div>
           <div style={{marginTop:20}}><Spinner/></div>
         </div>
       </div>
     );
   }
 
-  if(!user) return <AuthScreen/>;
-  if(!currentGroup) return <HomeScreen currentUser={user} onSelectGroup={setCurrentGroup}/>;
+  if(!user&&guestMode)  return <GuestFeedScreen onSignUp={()=>setGuestMode(false)}/>;
+  if(!user)             return <AuthScreen onGuest={()=>setGuestMode(true)}/>;
+  if(!currentGroup)     return <HomeScreen currentUser={user} onSelectGroup={setCurrentGroup}/>;
   return <GroupApp currentUser={user} group={currentGroup} onLeaveGroup={()=>setCurrentGroup(null)}/>;
+}
+
+// ─── GUEST FEED SCREEN ───────────────────────────────────────────────────────
+function GuestFeedScreen({onSignUp}){
+  const [feedPosts,   setFeedPosts]   = useState([]);
+  const [feedLoading, setFeedLoading] = useState(true);
+  const [showWall,    setShowWall]    = useState(false);
+
+  useEffect(()=>{
+    const unsub=onSnapshot(doc(db,"dtg_feed","posts"),snap=>{
+      setFeedPosts(snap.exists()?(snap.data().list||[]):[]);
+      setFeedLoading(false);
+    });
+    return unsub;
+  },[]);
+
+  const sorted=[...feedPosts].sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));
+
+  return(
+    <div style={{minHeight:"100vh",background:"#0a1a0c",fontFamily:"'DM Sans',sans-serif",color:C.cream}}>
+      <style>{css}</style>
+
+      {showWall&&(
+        <div style={{position:"fixed",inset:0,zIndex:400,background:"rgba(0,0,0,.9)",backdropFilter:"blur(10px)",display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
+          <div style={{background:"#0d2010",border:"1px solid rgba(42,107,52,.3)",borderRadius:20,padding:"36px 28px",width:"100%",maxWidth:380,textAlign:"center"}}>
+            <div style={{fontSize:44,marginBottom:16}}>⛳</div>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:22,fontWeight:700,color:C.cream,marginBottom:8}}>Join Down To Golf</div>
+            <div style={{fontSize:14,color:C.creamMuted,marginBottom:28,lineHeight:1.6}}>Create your free account to join rounds, post tee times, and connect with golfers near you.</div>
+            <button className="bh" onClick={onSignUp} style={{width:"100%",background:`linear-gradient(135deg,${C.gold},${C.goldDim})`,border:"none",borderRadius:12,color:"#0a1a0c",padding:"15px",fontSize:15,fontWeight:700,cursor:"pointer",letterSpacing:1,fontFamily:"'Cinzel',sans-serif",marginBottom:12}}>CREATE FREE ACCOUNT</button>
+            <button className="bh" onClick={onSignUp} style={{width:"100%",background:"none",border:"1px solid rgba(42,107,52,.3)",borderRadius:12,color:C.creamMuted,padding:"13px",fontSize:13,cursor:"pointer"}}>Already have an account? Sign In</button>
+            <button onClick={()=>setShowWall(false)} style={{background:"none",border:"none",color:C.creamMuted,fontSize:12,cursor:"pointer",marginTop:16}}>Keep browsing</button>
+          </div>
+        </div>
+      )}
+
+      <div style={{position:"sticky",top:0,zIndex:100,background:"#0a1a0c",borderBottom:"1px solid rgba(42,107,52,.2)"}}>
+        <div style={{maxWidth:520,margin:"0 auto",padding:"14px 16px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:20,fontWeight:700,letterSpacing:2,color:C.cream}}>Down To Golf</div>
+            <div style={{fontSize:10,color:C.creamMuted,letterSpacing:2}}>Find golfers near you</div>
+          </div>
+          <button className="bh" onClick={onSignUp} style={{background:`linear-gradient(135deg,${C.gold},${C.goldDim})`,border:"none",borderRadius:10,color:"#0a1a0c",padding:"9px 16px",fontSize:13,fontWeight:700,cursor:"pointer"}}>Join Free</button>
+        </div>
+      </div>
+
+      <div style={{maxWidth:520,margin:"0 auto"}}>
+        {feedLoading&&<div style={{textAlign:"center",padding:"60px"}}><Spinner/></div>}
+
+        {!feedLoading&&sorted.length===0&&(
+          <div style={{textAlign:"center",padding:"80px 24px",color:C.creamMuted}}>
+            <div style={{fontSize:52,marginBottom:16}}>⛳</div>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:18,color:C.creamDim,marginBottom:8}}>Rounds posting soon</div>
+            <div style={{fontSize:13,marginBottom:24}}>Be the first golfer in your area on Down To Golf</div>
+            <button className="bh" onClick={onSignUp} style={{background:`linear-gradient(135deg,${C.gold},${C.goldDim})`,border:"none",borderRadius:12,color:"#0a1a0c",padding:"14px 28px",fontSize:14,fontWeight:700,cursor:"pointer"}}>Create Free Account</button>
+          </div>
+        )}
+
+        {!feedLoading&&sorted.map(post=>(
+          <div key={post.id} style={{background:"#0a1a0c",borderTop:"1px solid rgba(42,107,52,.1)",marginBottom:2}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px 8px"}}>
+              <Avatar name={post.authorName} photo={post.authorPhoto||null} size={36} radius={18}/>
+              <div style={{flex:1}}>
+                <div style={{fontSize:13,fontWeight:600,color:C.cream}}>{post.authorName}</div>
+                <div style={{fontSize:11,color:C.creamMuted}}>{formatAgo(post.createdAt)}</div>
+              </div>
+              {post.type==="match"&&<div style={{fontSize:10,background:"rgba(201,162,39,.15)",border:"1px solid rgba(201,162,39,.3)",borderRadius:6,padding:"2px 8px",color:C.goldLight}}>⛳ Open Round</div>}
+            </div>
+            {post.photo&&<img src={post.photo} alt="post" style={{width:"100%",aspectRatio:post.type==="match"?"4/5":"auto",maxHeight:post.type==="regular"?400:undefined,objectFit:"cover",display:"block"}}/>}
+            <div style={{padding:"12px 14px"}}>
+              {post.type==="match"&&(<>
+                <div style={{fontFamily:"'Cinzel',serif",fontSize:15,fontWeight:700,color:C.cream,marginBottom:4}}>{post.course}</div>
+                <div style={{fontSize:12,color:C.creamMuted,marginBottom:12}}>📅 {formatDateFull(post.date)} · ⏰ {formatTime(post.time)}</div>
+              </>)}
+              {post.caption&&<div style={{fontSize:14,color:C.creamDim,marginBottom:12,lineHeight:1.6}}><strong style={{color:C.cream}}>{post.authorName} </strong>{post.caption}</div>}
+              {post.type==="match"&&(
+                <button onClick={()=>setShowWall(true)} style={{width:"100%",background:`linear-gradient(135deg,${C.gold},${C.goldDim})`,border:"none",borderRadius:12,color:"#0a1a0c",padding:"13px",fontSize:14,fontWeight:700,cursor:"pointer"}}>
+                  I'm In ⛳ — Join to play
+                </button>
+              )}
+              {post.type==="regular"&&(
+                <button onClick={()=>setShowWall(true)} style={{background:"none",border:"none",color:C.creamMuted,fontSize:13,cursor:"pointer",padding:0}}>🔥 React or comment — Join Down To Golf</button>
+              )}
+            </div>
+          </div>
+        ))}
+
+        {!feedLoading&&sorted.length>0&&(
+          <div style={{margin:"20px 16px 40px",background:"linear-gradient(135deg,rgba(26,77,36,.3),rgba(201,162,39,.08))",border:"1px solid rgba(201,162,39,.2)",borderRadius:16,padding:"24px",textAlign:"center"}}>
+            <div style={{fontSize:28,marginBottom:10}}>⛳</div>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:16,fontWeight:700,color:C.cream,marginBottom:6}}>Ready to play?</div>
+            <div style={{fontSize:13,color:C.creamMuted,marginBottom:16}}>Create your free Down To Golf account and join a round today.</div>
+            <button className="bh" onClick={onSignUp} style={{background:`linear-gradient(135deg,${C.gold},${C.goldDim})`,border:"none",borderRadius:12,color:"#0a1a0c",padding:"13px 28px",fontSize:14,fontWeight:700,cursor:"pointer"}}>Create Free Account</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function AnnouncementBanner({announcement}){
