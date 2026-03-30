@@ -1276,8 +1276,14 @@ function PeopleTab({currentUser, suggestions, loading, onLoad}){
       setMyFollowing(uids);
       if(uids.length>0){
         const profiles=await Promise.all(uids.map(async uid=>{
-          const pd=await getDoc(doc(db,"userProfiles",uid));
-          return{uid,...(pd.exists()?pd.data():{displayName:"DTG Golfer"})};
+          // Check both users (signup data) and userProfiles (extended data)
+          const [userDoc, profileDoc]=await Promise.all([
+            getDoc(doc(db,"users",uid)),
+            getDoc(doc(db,"userProfiles",uid)),
+          ]);
+          const base=userDoc.exists()?userDoc.data():{};
+          const profile=profileDoc.exists()?profileDoc.data():{};
+          return{uid,...base,...profile};
         }));
         setFriendProfiles(profiles);
       } else {
@@ -1626,10 +1632,15 @@ function HomeScreen({currentUser, onSelectGroup}){
         .slice(0,20)
         .map(([uid,count])=>({uid,mutuals:count}));
 
-      // 5. Load profiles for suggestions
+      // 5. Load profiles for suggestions — check both users and userProfiles
       const withProfiles=await Promise.all(sorted.map(async s=>{
-        const pd=await getDoc(doc(db,"userProfiles",s.uid));
-        return{...s,...(pd.exists()?pd.data():{displayName:"DTG Golfer"})};
+        const [userDoc,pd]=await Promise.all([
+          getDoc(doc(db,"users",s.uid)),
+          getDoc(doc(db,"userProfiles",s.uid)),
+        ]);
+        const base=userDoc.exists()?userDoc.data():{};
+        const profile=pd.exists()?pd.data():{};
+        return{...s,...base,...profile,uid:s.uid};
       }));
 
       // If no suggestions from connections, just show all users
