@@ -340,6 +340,67 @@ function CreateRoundPostModal({currentUser, onPost, onClose}){
   );
 }
 
+// ─── FOLLOW BUTTON ───────────────────────────────────────────────────────────
+function FollowButton({targetUid, targetName, currentUser}){
+  const [following,   setFollowing]   = useState(false);
+  const [requested,   setRequested]   = useState(false);
+  const [loading,     setLoading]     = useState(true);
+
+  useEffect(()=>{
+    const unsub=onSnapshot(doc(db,"userFollowing",currentUser.uid),snap=>{
+      const data=snap.exists()?snap.data():{};
+      setFollowing(!!(data.uids||[]).includes(targetUid));
+      setLoading(false);
+    });
+    const unsubReq=onSnapshot(doc(db,"friendRequests",currentUser.uid+"_"+targetUid),snap=>{
+      setRequested(snap.exists());
+    });
+    return()=>{unsub();unsubReq();};
+  },[targetUid,currentUser.uid]);
+
+  async function toggleFollow(){
+    const ref=doc(db,"userFollowing",currentUser.uid);
+    const snap=await getDoc(ref);
+    const uids=snap.exists()?(snap.data().uids||[]):[];
+    if(following){
+      await setDoc(ref,{uids:uids.filter(u=>u!==targetUid)},{merge:true});
+    } else {
+      await setDoc(ref,{uids:[...uids,targetUid]},{merge:true});
+      // Also add to target's followers
+      const fRef=doc(db,"userFollowers",targetUid);
+      const fSnap=await getDoc(fRef);
+      const fuids=fSnap.exists()?(fSnap.data().uids||[]):[];
+      await setDoc(fRef,{uids:[...fuids,currentUser.uid]},{merge:true});
+    }
+  }
+
+  async function sendFriendRequest(){
+    if(requested)return;
+    await setDoc(doc(db,"friendRequests",currentUser.uid+"_"+targetUid),{
+      fromUid:currentUser.uid,
+      fromName:currentUser.displayName||"",
+      toUid:targetUid,
+      toName:targetName,
+      status:"pending",
+      sentAt:new Date().toISOString(),
+    });
+    setRequested(true);
+  }
+
+  if(loading)return null;
+
+  return(
+    <div style={{display:"flex",gap:6,flexShrink:0}}>
+      <button className="bh" onClick={toggleFollow} style={{background:following?`rgba(42,107,52,.2)`:`linear-gradient(135deg,${C.green},${C.greenLight})`,border:following?"1px solid rgba(77,184,96,.3)":"none",borderRadius:8,color:following?C.greenBright:C.cream,padding:"6px 12px",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
+        {following?"✓ Following":"Follow"}
+      </button>
+      <button className="bh" onClick={sendFriendRequest} disabled={requested} style={{background:requested?"rgba(255,255,255,.04)":"rgba(255,255,255,.06)",border:"1px solid rgba(255,255,255,.1)",borderRadius:8,color:requested?C.creamMuted:C.creamDim,padding:"6px 10px",fontSize:11,cursor:requested?"default":"pointer",whiteSpace:"nowrap"}}>
+        {requested?"Sent ✓":"+ Friend"}
+      </button>
+    </div>
+  );
+}
+
 // ─── MATCH POST CARD ──────────────────────────────────────────────────────────
 function MatchPostCard({post, currentUser, onJoin, onLeave, onDelete, isOwner}){
   const [showCmts,  setShowCmts]  = useState(false);
@@ -347,6 +408,7 @@ function MatchPostCard({post, currentUser, onJoin, onLeave, onDelete, isOwner}){
   const [cText,     setCText]     = useState("");
   const [showMenu,  setShowMenu]  = useState(false);
   const [confirmDel,setConfirmDel]= useState(false);
+  const [showPlayers,setShowPlayers]= useState(false);
 
   const players = post.players||[];
   const totalSpots = post.totalSpots||4;
@@ -374,6 +436,33 @@ function MatchPostCard({post, currentUser, onJoin, onLeave, onDelete, isOwner}){
 
   return(
     <div style={{background:"#0a1a0c",borderRadius:0,marginBottom:2,overflow:"hidden",borderTop:"1px solid rgba(42,107,52,.1)"}}>
+      {showPlayers&&(
+        <div style={{position:"fixed",inset:0,zIndex:400,background:"rgba(0,0,0,.85)",backdropFilter:"blur(6px)",display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={()=>setShowPlayers(false)}>
+          <div style={{background:"#1a3a1e",border:"1px solid rgba(42,107,52,.3)",borderRadius:"20px 20px 0 0",padding:"24px 20px 40px",width:"100%",maxWidth:480}} onClick={e=>e.stopPropagation()}>
+            <div style={{width:36,height:4,background:"rgba(255,255,255,.2)",borderRadius:2,margin:"0 auto 20px"}}/>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:15,fontWeight:700,color:C.cream,marginBottom:16}}>Who's In — {post.course||"This Round"}</div>
+            {players.map((p,i)=>(
+              <div key={p.uid} style={{display:"flex",alignItems:"center",gap:12,paddingBottom:14,marginBottom:14,borderBottom:i<players.length-1?"1px solid rgba(42,107,52,.15)":"none"}}>
+                <Avatar name={p.displayName} photo={p.photo||null} size={42} radius={21}/>
+                <div style={{flex:1}}>
+                  <div style={{fontWeight:600,fontSize:14,color:C.cream}}>{p.displayName}</div>
+                  <div style={{fontSize:11,color:C.creamMuted,marginTop:2}}>Joined {formatAgo(p.joinedAt)}</div>
+                </div>
+                {p.uid!==currentUser.uid&&(
+                  <FollowButton targetUid={p.uid} targetName={p.displayName} currentUser={currentUser}/>
+                )}
+              </div>
+            ))}
+            {Array.from({length:spotsLeft}).map((_,i)=>(
+              <div key={"empty"+i} style={{display:"flex",alignItems:"center",gap:12,paddingBottom:14,marginBottom:14,borderBottom:"1px solid rgba(42,107,52,.1)",opacity:.4}}>
+                <div style={{width:42,height:42,borderRadius:21,background:"rgba(42,107,52,.2)",border:"1.5px dashed rgba(77,184,96,.4)",display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{fontSize:18,color:C.greenBright}}>+</span></div>
+                <div style={{fontSize:13,color:C.creamMuted}}>Open spot</div>
+              </div>
+            ))}
+            <button onClick={()=>setShowPlayers(false)} style={{width:"100%",background:"rgba(255,255,255,.06)",border:"none",borderRadius:12,color:C.creamMuted,padding:"13px",fontSize:14,cursor:"pointer",marginTop:8}}>Close</button>
+          </div>
+        </div>
+      )}
       {confirmDel&&(
         <div style={{position:"fixed",inset:0,zIndex:400,background:"rgba(0,0,0,.85)",backdropFilter:"blur(6px)",display:"flex",alignItems:"flex-end",justifyContent:"center",padding:"0 0 40px"}}>
           <div style={{background:"#1a3a1e",border:"1px solid rgba(42,107,52,.3)",borderRadius:20,padding:"28px 24px",width:"100%",maxWidth:420,margin:"0 16px",textAlign:"center"}}>
@@ -441,25 +530,27 @@ function MatchPostCard({post, currentUser, onJoin, onLeave, onDelete, isOwner}){
           📅 {formatDateFull(post.date)} · ⏰ {formatTime(post.time)}
         </div>
 
-        {/* Player avatars */}
-        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+        {/* Player avatars — tappable to see full list */}
+        <button onClick={()=>setShowPlayers(true)} style={{display:"flex",alignItems:"center",gap:8,marginBottom:12,background:"none",border:"none",cursor:"pointer",padding:0,textAlign:"left",width:"100%"}}>
           <div style={{display:"flex"}}>
             {players.map((p,i)=>(
               <div key={p.uid} style={{marginLeft:i>0?-8:0,zIndex:players.length-i}}>
-                <Avatar name={p.displayName} photo={p.photo||null} size={30} radius={15}/>
+                <Avatar name={p.displayName} photo={p.photo||null} size={32} radius={16}/>
               </div>
             ))}
-            {/* Empty slots */}
             {Array.from({length:spotsLeft}).map((_,i)=>(
-              <div key={"empty"+i} style={{marginLeft:players.length>0||i>0?-8:0,width:30,height:30,borderRadius:15,background:"rgba(42,107,52,.2)",border:"1.5px dashed rgba(77,184,96,.4)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:0}}>
+              <div key={"empty"+i} style={{marginLeft:players.length>0||i>0?-8:0,width:32,height:32,borderRadius:16,background:"rgba(42,107,52,.2)",border:"1.5px dashed rgba(77,184,96,.4)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:0}}>
                 <span style={{fontSize:12,color:C.greenBright}}>+</span>
               </div>
             ))}
           </div>
-          <div style={{fontSize:12,color:C.creamMuted}}>
-            {isFull?"Full crew ⛳":`${spotsLeft} spot${spotsLeft!==1?"s":""} left`}
+          <div style={{flex:1}}>
+            <div style={{fontSize:12,color:C.creamMuted}}>
+              {isFull?"Full crew ⛳":`${spotsLeft} spot${spotsLeft!==1?"s":""} left`}
+            </div>
+            {players.length>0&&<div style={{fontSize:11,color:C.greenBright,marginTop:1}}>Tap to see who's in →</div>}
           </div>
-        </div>
+        </button>
 
         {/* I'm In / Leave button */}
         {!isExpired&&(
@@ -511,6 +602,75 @@ function MatchPostCard({post, currentUser, onJoin, onLeave, onDelete, isOwner}){
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── SHOP TAB ─────────────────────────────────────────────────────────────────
+function ShopTab({items, currentUser}){
+  const [filter, setFilter] = useState("all");
+
+  const categories=["all",...new Set(items.map(i=>i.category).filter(Boolean))];
+  const filtered=filter==="all"?items:items.filter(i=>i.category===filter);
+  const active=filtered.filter(i=>i.active!==false);
+
+  function openLink(url){
+    if(!url)return;
+    window.open(url,"_blank","noopener,noreferrer");
+  }
+
+  return(
+    <div style={{maxWidth:520,margin:"0 auto",padding:"16px"}}>
+      <div style={{marginBottom:20}}>
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:18,fontWeight:700,color:C.cream,marginBottom:4}}>🛍 DTG Shop</div>
+        <div style={{fontSize:12,color:C.creamMuted}}>Gear we actually use and recommend</div>
+      </div>
+
+      {/* Category filters */}
+      {categories.length>1&&(
+        <div style={{display:"flex",gap:8,marginBottom:20,overflowX:"auto",paddingBottom:4}}>
+          {categories.map(cat=>(
+            <button key={cat} onClick={()=>setFilter(cat)} style={{padding:"7px 14px",borderRadius:20,border:"none",cursor:"pointer",fontSize:12,fontWeight:600,whiteSpace:"nowrap",background:filter===cat?`linear-gradient(135deg,${C.gold},${C.goldDim})`:"rgba(13,32,16,.8)",color:filter===cat?"#0a1a0c":C.creamMuted,flexShrink:0}}>
+              {cat==="all"?"All":cat}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {active.length===0&&(
+        <div style={{textAlign:"center",padding:"60px 20px",color:C.creamMuted}}>
+          <div style={{fontSize:40,marginBottom:14}}>🛍</div>
+          <div style={{fontSize:15,color:C.creamDim,marginBottom:6}}>Shop coming soon</div>
+          <div style={{fontSize:13}}>Gear and equipment picks from the DTG crew</div>
+        </div>
+      )}
+
+      {/* Product grid — 2 columns */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+        {active.map(item=>(
+          <div key={item.id} onClick={()=>openLink(item.affiliateUrl)} style={{background:"rgba(13,32,16,.85)",border:"1px solid rgba(42,107,52,.2)",borderRadius:16,overflow:"hidden",cursor:item.affiliateUrl?"pointer":"default",transition:"all .15s"}} className="bh">
+            {/* Product photo */}
+            {item.photo?(
+              <img src={item.photo} alt={item.name} style={{width:"100%",aspectRatio:"1/1",objectFit:"cover",display:"block"}}/>
+            ):(
+              <div style={{width:"100%",aspectRatio:"1/1",background:"rgba(26,77,36,.2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:36}}>🏌️</div>
+            )}
+            <div style={{padding:"12px"}}>
+              {item.category&&<div style={{fontSize:9,color:C.creamMuted,letterSpacing:2,textTransform:"uppercase",marginBottom:4}}>{item.category}</div>}
+              <div style={{fontWeight:600,fontSize:13,color:C.cream,lineHeight:1.4,marginBottom:4}}>{item.name}</div>
+              {item.description&&<div style={{fontSize:11,color:C.creamMuted,lineHeight:1.5,marginBottom:8}}>{item.description}</div>}
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+                {item.price&&<div style={{fontFamily:"'Cinzel',serif",fontSize:14,fontWeight:700,color:C.goldLight}}>${item.price}</div>}
+                {item.affiliateUrl&&(
+                  <div style={{background:`linear-gradient(135deg,${C.gold},${C.goldDim})`,borderRadius:8,padding:"5px 10px",fontSize:11,fontWeight:700,color:"#0a1a0c",whiteSpace:"nowrap"}}>
+                    Buy →
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -726,11 +886,46 @@ function CourseProfile({course, currentUser, onBack, onAddCommunityPhoto}){
 }
 
 // ─── DTG ADMIN PANEL ─────────────────────────────────────────────────────────
-function DtgAdminPanel({courses, onSaveCourses, onClose}){
+function DtgAdminPanel({courses, onSaveCourses, shopItems, onSaveShop, onClose}){
+  const [adminTab,    setAdminTab]    = useState("courses"); // courses | shop
   const [view,        setView]        = useState("list"); // list | add | edit | holes
   const [editCourse,  setEditCourse]  = useState(null);
   const [holesCourse, setHolesCourse] = useState(null);
   const [saving,      setSaving]      = useState(false);
+
+  // Shop form state
+  const [shopView,     setShopView]     = useState("list"); // list | add | edit
+  const [shopForm,     setShopForm]     = useState(emptyItem());
+  const [shopSaving,   setShopSaving]   = useState(false);
+  const shopFileRef = useRef(null);
+
+  function emptyItem(){return{id:"item_"+Date.now(),name:"",category:"",description:"",price:"",affiliateUrl:"",photo:null,active:true,createdAt:new Date().toISOString()};}
+
+  async function handleShopPhoto(e){
+    const f=e.target.files[0];if(!f)return;
+    const photo=await resizeImage(f,600,0.85);
+    setShopForm(sf=>({...sf,photo}));
+    e.target.value="";
+  }
+
+  async function saveItem(){
+    setShopSaving(true);
+    const updated=shopView==="edit"
+      ?shopItems.map(i=>i.id===shopForm.id?shopForm:i)
+      :[...shopItems,shopForm];
+    await onSaveShop(updated);
+    setShopSaving(false);
+    setShopView("list");
+  }
+
+  async function deleteItem(id){
+    if(!window.confirm("Delete this item?"))return;
+    await onSaveShop(shopItems.filter(i=>i.id!==id));
+  }
+
+  async function toggleItemActive(id){
+    await onSaveShop(shopItems.map(i=>i.id===id?{...i,active:!i.active}:i));
+  }
 
   // Course form
   const emptyCourse=()=>({id:"c_"+Date.now(),name:"",city:"",state:"FL",holes:18,tees:[{name:"Blue",color:"#1a4dcc",rating:"",slope:"",yardages:Array(18).fill("")},{name:"White",color:"#e8e8e8",rating:"",slope:"",yardages:Array(18).fill("")},{name:"Red",color:"#cc1a1a",rating:"",slope:"",yardages:Array(18).fill("")}],pars:Array(18).fill("4"),handicaps:Array(18).fill(""),practiceRange:false,practiceNotes:"",signatureHole:"",signatureHoleNote:"",featuredPhotos:[],communityPhotos:[],createdAt:new Date().toISOString()});
@@ -776,14 +971,25 @@ function DtgAdminPanel({courses, onSaveCourses, onClose}){
       <div style={{maxWidth:640,margin:"0 auto",padding:"16px 16px 60px"}}>
 
         {/* Header */}
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:24,paddingTop:8}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,paddingTop:8}}>
           <div>
             <div style={{fontFamily:"'Cinzel',serif",fontSize:18,fontWeight:700,color:C.gold,letterSpacing:2}}>⚙️ DTG ADMIN</div>
-            <div style={{fontSize:11,color:C.creamMuted,marginTop:2}}>Course database · Global settings</div>
+            <div style={{fontSize:11,color:C.creamMuted,marginTop:2}}>Manage courses, shop, and settings</div>
           </div>
           <button onClick={onClose} style={{background:"none",border:"none",color:C.creamMuted,fontSize:13,cursor:"pointer"}}>✕ Close</button>
         </div>
 
+        {/* Admin tabs */}
+        <div style={{display:"flex",background:"rgba(13,32,16,.8)",borderRadius:12,padding:4,marginBottom:20,border:"1px solid rgba(42,107,52,.2)"}}>
+          {[{id:"courses",label:"⛳ Courses"},{id:"shop",label:"🛍 Shop"}].map(t=>(
+            <button key={t.id} onClick={()=>setAdminTab(t.id)} style={{flex:1,padding:"10px",borderRadius:9,border:"none",cursor:"pointer",fontSize:13,fontWeight:600,background:adminTab===t.id?`linear-gradient(135deg,${C.gold},${C.goldDim})`:"transparent",color:adminTab===t.id?"#0a1a0c":C.creamMuted}}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* COURSES SECTION */}
+        {adminTab==="courses"&&<>
         {/* COURSE LIST */}
         {view==="list"&&(
           <div>
@@ -918,7 +1124,7 @@ function DtgAdminPanel({courses, onSaveCourses, onClose}){
         )}
 
         {/* HOLE YARDAGES */}
-        {view==="holes"&&holesCourse&&(
+        {adminTab==="courses"&&view==="holes"&&holesCourse&&(
           <div>
             <button className="bh" onClick={()=>setView("list")} style={{background:"none",border:"none",color:C.creamMuted,fontSize:12,cursor:"pointer",letterSpacing:2,marginBottom:16}}>← BACK</button>
             <div style={{fontFamily:"'Cinzel',serif",fontSize:15,fontWeight:600,color:C.cream,marginBottom:4}}>{holesCourse.name}</div>
@@ -967,6 +1173,284 @@ function DtgAdminPanel({courses, onSaveCourses, onClose}){
             <button className="bh" onClick={saveHoles} disabled={saving} style={{width:"100%",background:`linear-gradient(135deg,${C.gold},${C.goldDim})`,border:"none",borderRadius:12,color:"#0a1a0c",padding:"14px",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"'Cinzel',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>{saving?<><Spinner/>Saving…</>:"SAVE YARDAGES ⛳"}</button>
           </div>
         )}
+        </> }
+
+        {/* SHOP SECTION */}
+        {adminTab==="shop"&&(
+          <div>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+              <div style={{fontFamily:"'Cinzel',serif",fontSize:15,fontWeight:600,color:C.cream}}>Shop Items ({shopItems.length})</div>
+              <button className="bh" onClick={()=>{setShopForm(emptyItem());setShopView("add");}} style={{background:`linear-gradient(135deg,${C.gold},${C.goldDim})`,border:"none",borderRadius:10,color:"#0a1a0c",padding:"9px 16px",fontSize:12,fontWeight:700,cursor:"pointer"}}>+ Add Item</button>
+            </div>
+
+            {/* Item list */}
+            {shopView==="list"&&(
+              <div>
+                {shopItems.length===0&&<Empty msg="No shop items yet — add your first product"/>}
+                {shopItems.map(item=>(
+                  <div key={item.id} style={{background:"rgba(13,32,16,.8)",border:"1px solid rgba(42,107,52,.2)",borderRadius:14,padding:"14px 16px",marginBottom:10,display:"flex",gap:12,alignItems:"center"}}>
+                    {item.photo?(
+                      <img src={item.photo} alt={item.name} style={{width:56,height:56,objectFit:"cover",borderRadius:10,flexShrink:0}}/>
+                    ):(
+                      <div style={{width:56,height:56,background:"rgba(26,77,36,.2)",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,flexShrink:0}}>🛍</div>
+                    )}
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontWeight:600,fontSize:14,color:item.active!==false?C.cream:C.creamMuted}}>{item.name}</div>
+                      <div style={{fontSize:11,color:C.creamMuted,marginTop:2}}>{item.category&&<span style={{marginRight:8}}>{item.category}</span>}{item.price&&<span style={{color:C.goldLight}}>${item.price}</span>}</div>
+                    </div>
+                    <div style={{display:"flex",gap:6,flexShrink:0,flexWrap:"wrap",justifyContent:"flex-end"}}>
+                      <button className="bh" onClick={()=>toggleItemActive(item.id)} style={{background:item.active!==false?"rgba(42,107,52,.2)":"rgba(192,64,64,.1)",border:item.active!==false?"1px solid rgba(77,184,96,.3)":"1px solid rgba(192,64,64,.25)",borderRadius:7,color:item.active!==false?C.greenBright:"#c07070",padding:"5px 10px",fontSize:10,cursor:"pointer",fontWeight:600}}>{item.active!==false?"Live":"Hidden"}</button>
+                      <button className="bh" onClick={()=>{setShopForm({...item});setShopView("edit");}} style={{background:"rgba(201,162,39,.1)",border:"1px solid rgba(201,162,39,.3)",borderRadius:7,color:C.goldLight,padding:"5px 10px",fontSize:10,cursor:"pointer"}}>Edit</button>
+                      <button className="bh" onClick={()=>deleteItem(item.id)} style={{background:"rgba(192,64,64,.1)",border:"1px solid rgba(192,64,64,.25)",borderRadius:7,color:"#c07070",padding:"5px 10px",fontSize:10,cursor:"pointer"}}>Del</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Add / Edit item form */}
+            {(shopView==="add"||shopView==="edit")&&(
+              <div>
+                <button className="bh" onClick={()=>setShopView("list")} style={{background:"none",border:"none",color:C.creamMuted,fontSize:12,cursor:"pointer",letterSpacing:2,marginBottom:16}}>← BACK</button>
+                <div style={{fontFamily:"'Cinzel',serif",fontSize:15,fontWeight:600,color:C.cream,marginBottom:20}}>{shopView==="add"?"ADD ITEM":"EDIT ITEM"}</div>
+
+                {/* Photo */}
+                <div style={{marginBottom:16}}>
+                  <div style={{fontSize:10,color:C.creamMuted,letterSpacing:2,textTransform:"uppercase",marginBottom:10}}>Product Photo</div>
+                  <div onClick={()=>shopFileRef.current?.click()} style={{width:"100%",aspectRatio:"1/1",maxHeight:200,background:"rgba(13,32,16,.8)",border:"1px dashed rgba(42,107,52,.4)",borderRadius:14,cursor:"pointer",overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"center",position:"relative"}}>
+                    {shopForm.photo?(
+                      <img src={shopForm.photo} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                    ):(
+                      <div style={{textAlign:"center",color:C.creamMuted}}>
+                        <div style={{fontSize:32,marginBottom:8}}>📸</div>
+                        <div style={{fontSize:12}}>Tap to add photo</div>
+                      </div>
+                    )}
+                    {shopForm.photo&&<button onClick={e=>{e.stopPropagation();setShopForm(sf=>({...sf,photo:null}));}} style={{position:"absolute",top:8,right:8,background:"rgba(0,0,0,.6)",border:"none",borderRadius:"50%",width:28,height:28,color:C.cream,cursor:"pointer",fontSize:14}}>✕</button>}
+                  </div>
+                  <input ref={shopFileRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleShopPhoto}/>
+                </div>
+
+                <div style={{background:"rgba(13,32,16,.85)",border:"1px solid rgba(42,107,52,.25)",borderRadius:16,padding:"20px",display:"flex",flexDirection:"column",gap:14,marginBottom:16}}>
+                  <Field label="Product Name"><input value={shopForm.name} onChange={e=>setShopForm(sf=>({...sf,name:e.target.value}))} placeholder="e.g. Titleist Pro V1 Golf Balls" style={iStyle(false)}/></Field>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                    <Field label="Category"><input value={shopForm.category||""} onChange={e=>setShopForm(sf=>({...sf,category:e.target.value}))} placeholder="e.g. Balls, Gloves, Tech" style={iStyle(false)}/></Field>
+                    <Field label="Price"><div style={{position:"relative"}}><span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",color:C.creamMuted,fontSize:14}}>$</span><input type="number" value={shopForm.price||""} onChange={e=>setShopForm(sf=>({...sf,price:e.target.value}))} placeholder="49.99" style={{...iStyle(false),paddingLeft:28}}/></div></Field>
+                  </div>
+                  <Field label="Description"><textarea value={shopForm.description||""} onChange={e=>setShopForm(sf=>({...sf,description:e.target.value}))} placeholder="Why you recommend this product…" rows={2} style={{...iStyle(false),resize:"none",fontFamily:"'DM Sans',sans-serif"}}/></Field>
+                  <Field label="Affiliate Link"><input value={shopForm.affiliateUrl||""} onChange={e=>setShopForm(sf=>({...sf,affiliateUrl:e.target.value}))} placeholder="https://amzn.to/..." style={iStyle(false)}/></Field>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                    <div style={{fontWeight:600,fontSize:13,color:C.cream}}>Show in shop</div>
+                    <button onClick={()=>setShopForm(sf=>({...sf,active:!sf.active}))} style={{width:44,height:26,borderRadius:13,border:"none",cursor:"pointer",background:shopForm.active?C.greenBright:"rgba(255,255,255,.1)",transition:"all .2s",position:"relative"}}>
+                      <div style={{width:20,height:20,borderRadius:10,background:"white",position:"absolute",top:3,transition:"all .2s",left:shopForm.active?20:3}}/>
+                    </button>
+                  </div>
+                </div>
+
+                <button className="bh" onClick={saveItem} disabled={!shopForm.name.trim()||shopSaving} style={{width:"100%",background:shopForm.name.trim()?`linear-gradient(135deg,${C.gold},${C.goldDim})`:"rgba(60,60,60,.3)",border:"none",borderRadius:12,color:shopForm.name.trim()?"#0a1a0c":C.creamMuted,padding:"14px",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"'Cinzel',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>{shopSaving?<><Spinner/>Saving…</>:shopView==="add"?"ADD TO SHOP 🛍":"SAVE CHANGES"}</button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── PEOPLE TAB ──────────────────────────────────────────────────────────────
+function PeopleTab({currentUser, suggestions, loading, onLoad}){
+  const [searchText,   setSearchText]   = useState("");
+  const [searchRes,    setSearchRes]    = useState([]);
+  const [searching,    setSearching]    = useState(false);
+  const [myFollowing,  setMyFollowing]  = useState([]);
+  const [friendProfiles,setFriendProfiles]=useState([]);
+  const [friendsLoading,setFriendsLoading]=useState(true);
+  const [activeSection,setActiveSection]=useState("friends"); // friends | discover
+
+  useEffect(()=>{
+    onLoad();
+    // Load who I follow + their profiles
+    const unsub=onSnapshot(doc(db,"userFollowing",currentUser.uid),async snap=>{
+      const uids=snap.exists()?(snap.data().uids||[]):[];
+      setMyFollowing(uids);
+      if(uids.length>0){
+        const profiles=await Promise.all(uids.map(async uid=>{
+          const pd=await getDoc(doc(db,"userProfiles",uid));
+          return{uid,...(pd.exists()?pd.data():{displayName:"DTG Golfer"})};
+        }));
+        setFriendProfiles(profiles);
+      } else {
+        setFriendProfiles([]);
+      }
+      setFriendsLoading(false);
+    });
+    return unsub;
+  },[]);
+
+  async function handleSearch(text){
+    setSearchText(text);
+    if(!text.trim()){setSearchRes([]);return;}
+    setSearching(true);
+    try {
+      const snap=await getDocs(collection(db,"userProfiles"));
+      const lower=text.toLowerCase();
+      const results=snap.docs
+        .map(d=>({uid:d.id,...d.data()}))
+        .filter(p=>p.uid!==currentUser.uid&&
+          ((p.displayName||"").toLowerCase().includes(lower)||
+           (p.homeCourse||"").toLowerCase().includes(lower)))
+        .slice(0,20);
+      setSearchRes(results);
+    } catch(e){console.error(e);}
+    setSearching(false);
+  }
+
+  const isSearching=searchText.trim().length>0;
+
+  return(
+    <div style={{maxWidth:520,margin:"0 auto",padding:"16px"}}>
+
+      {/* Search bar */}
+      <div style={{position:"relative",marginBottom:16}}>
+        <input
+          value={searchText}
+          onChange={e=>handleSearch(e.target.value)}
+          placeholder="🔍 Search by name or home course…"
+          style={{...iStyle(false),fontSize:14}}
+        />
+        {searching&&<div style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)"}}><Spinner/></div>}
+      </div>
+
+      {/* Section toggle — only show when not searching */}
+      {!isSearching&&(
+        <div style={{display:"flex",background:"rgba(13,32,16,.8)",borderRadius:12,padding:4,marginBottom:20,border:"1px solid rgba(42,107,52,.2)"}}>
+          {[{id:"friends",label:`👥 My Friends ${friendProfiles.length>0?"("+friendProfiles.length+")":""}`},{id:"discover",label:"✨ Discover"}].map(s=>(
+            <button key={s.id} onClick={()=>setActiveSection(s.id)} style={{flex:1,padding:"10px",borderRadius:9,border:"none",cursor:"pointer",fontSize:12,fontWeight:600,transition:"all .2s",background:activeSection===s.id?`linear-gradient(135deg,${C.green},${C.greenLight})`:"transparent",color:activeSection===s.id?C.cream:C.creamMuted}}>
+              {s.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* SEARCH RESULTS */}
+      {isSearching&&(
+        <>
+          <div style={{fontSize:12,color:C.creamMuted,marginBottom:16}}>{searchRes.length} result{searchRes.length!==1?"s":""} for "{searchText}"</div>
+          {searching&&<div style={{textAlign:"center",padding:"20px"}}><Spinner/></div>}
+          {!searching&&searchRes.length===0&&<Empty msg="No golfers found — try a different name or course"/>}
+          {searchRes.map(person=>(
+            <PersonCard key={person.uid} person={person} currentUser={currentUser} isFollowing={myFollowing.includes(person.uid)} onFollowChange={uid=>setMyFollowing(f=>f.includes(uid)?f.filter(u=>u!==uid):[...f,uid])}/>
+          ))}
+        </>
+      )}
+
+      {/* MY FRIENDS */}
+      {!isSearching&&activeSection==="friends"&&(
+        <>
+          {friendsLoading&&<div style={{textAlign:"center",padding:"40px"}}><Spinner/></div>}
+          {!friendsLoading&&friendProfiles.length===0&&(
+            <div style={{textAlign:"center",padding:"50px 20px",color:C.creamMuted}}>
+              <div style={{fontSize:40,marginBottom:14}}>👥</div>
+              <div style={{fontSize:15,color:C.creamDim,marginBottom:6}}>No friends yet</div>
+              <div style={{fontSize:13,marginBottom:20}}>Search for golfers above or check out Discover to find people you may know</div>
+              <button className="bh" onClick={()=>setActiveSection("discover")} style={{background:`linear-gradient(135deg,${C.gold},${C.goldDim})`,border:"none",borderRadius:10,color:"#0a1a0c",padding:"11px 20px",fontSize:13,fontWeight:700,cursor:"pointer"}}>Find Golfers ✨</button>
+            </div>
+          )}
+          {!friendsLoading&&friendProfiles.map(person=>(
+            <PersonCard key={person.uid} person={person} currentUser={currentUser} isFollowing={true} onFollowChange={uid=>setMyFollowing(f=>f.filter(u=>u!==uid))}/>
+          ))}
+        </>
+      )}
+
+      {/* DISCOVER / PYMK */}
+      {!isSearching&&activeSection==="discover"&&(
+        <>
+          <div style={{fontSize:12,color:C.creamMuted,marginBottom:16}}>Based on your connections and rounds</div>
+          {loading&&<div style={{textAlign:"center",padding:"40px"}}><Spinner/></div>}
+          {!loading&&suggestions.length===0&&(
+            <div style={{textAlign:"center",padding:"50px 20px",color:C.creamMuted}}>
+              <div style={{fontSize:40,marginBottom:14}}>✨</div>
+              <div style={{fontSize:15,color:C.creamDim,marginBottom:6}}>No suggestions yet</div>
+              <div style={{fontSize:13}}>Join open rounds on the feed to meet other golfers</div>
+            </div>
+          )}
+          {!loading&&suggestions.filter(p=>!myFollowing.includes(p.uid)).map(person=>(
+            <PersonCard key={person.uid} person={person} currentUser={currentUser} isFollowing={false} onFollowChange={uid=>setMyFollowing(f=>[...f,uid])}/>
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── PERSON CARD ──────────────────────────────────────────────────────────────
+function PersonCard({person, currentUser, isFollowing, onFollowChange}){
+  const [following,  setFollowing]  = useState(isFollowing);
+  const [requested,  setRequested]  = useState(false);
+  const [saving,     setSaving]     = useState(false);
+
+  async function toggleFollow(){
+    setSaving(true);
+    const ref=doc(db,"userFollowing",currentUser.uid);
+    const snap=await getDoc(ref);
+    const uids=snap.exists()?(snap.data().uids||[]):[];
+    if(following){
+      await setDoc(ref,{uids:uids.filter(u=>u!==person.uid)},{merge:true});
+      setFollowing(false);
+      onFollowChange(person.uid);
+    } else {
+      await setDoc(ref,{uids:[...uids,person.uid]},{merge:true});
+      // Add to their followers
+      const fRef=doc(db,"userFollowers",person.uid);
+      const fSnap=await getDoc(fRef);
+      const fuids=fSnap.exists()?(fSnap.data().uids||[]):[];
+      await setDoc(fRef,{uids:[...fuids,currentUser.uid]},{merge:true});
+      setFollowing(true);
+      onFollowChange(person.uid);
+    }
+    setSaving(false);
+  }
+
+  async function sendRequest(){
+    if(requested)return;
+    const inviteId=currentUser.uid+"_"+person.uid;
+    await setDoc(doc(db,"friendRequests",inviteId),{
+      fromUid:currentUser.uid,
+      fromName:currentUser.displayName||"",
+      toUid:person.uid,
+      toName:person.displayName||"",
+      status:"pending",
+      sentAt:new Date().toISOString(),
+    });
+    setRequested(true);
+  }
+
+  return(
+    <div style={{background:"rgba(13,32,16,.8)",border:"1px solid rgba(42,107,52,.2)",borderRadius:16,padding:"16px 18px",marginBottom:10,display:"flex",alignItems:"center",gap:12}}>
+      <Avatar name={person.displayName||""} photo={person.profilePhoto||null} size={52} radius={26}/>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontWeight:600,fontSize:15,color:C.cream}}>{person.displayName||"DTG Golfer"}</div>
+        {person.homeCourse&&<div style={{fontSize:12,color:C.creamMuted,marginTop:2}}>🏌️ {person.homeCourse}</div>}
+        {person.bio&&<div style={{fontSize:12,color:C.creamMuted,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:180}}>{person.bio}</div>}
+        {person.mutuals>0&&<div style={{fontSize:11,color:C.greenBright,marginTop:3}}>🔗 {person.mutuals} mutual connection{person.mutuals!==1?"s":""}</div>}
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:7,flexShrink:0}}>
+        <button
+          className="bh"
+          onClick={toggleFollow}
+          disabled={saving}
+          style={{background:following?`rgba(42,107,52,.2)`:`linear-gradient(135deg,${C.green},${C.greenLight})`,border:following?"1px solid rgba(77,184,96,.3)":"none",borderRadius:9,color:following?C.greenBright:C.cream,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}
+        >
+          {saving?<Spinner/>:following?"✓ Following":"Follow"}
+        </button>
+        <button
+          className="bh"
+          onClick={sendRequest}
+          disabled={requested}
+          style={{background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.1)",borderRadius:9,color:requested?C.creamMuted:C.creamDim,padding:"7px 14px",fontSize:12,cursor:requested?"default":"pointer",whiteSpace:"nowrap",fontWeight:600}}
+        >
+          {requested?"Sent ✓":"+ Friend"}
+        </button>
       </div>
     </div>
   );
@@ -986,6 +1470,11 @@ function HomeScreen({currentUser, onSelectGroup}){
   const [showCaddy,     setShowCaddy]     = useState(false);
   const [showDtgAdmin,  setShowDtgAdmin]  = useState(false);
   const [viewCourse,    setViewCourse]    = useState(null);
+  const [showFriends,   setShowFriends]   = useState(false);
+  const [friendReqs,    setFriendReqs]    = useState([]);
+  const [suggestions,   setSuggestions]   = useState([]);
+  const [sugsLoading,   setSugsLoading]   = useState(false);
+  const [shopItems,     setShopItems]     = useState([]);
   const [myProfile,     setMyProfile]     = useState({});
   const [myBag,         setMyBag]         = useState({});
   const [courses,       setCourses]       = useState([]);
@@ -996,6 +1485,31 @@ function HomeScreen({currentUser, onSelectGroup}){
   const isDtgAdmin = currentUser.uid === DTG_ADMIN_UID;
 
   async function saveCourses(list){await setDoc(doc(db,"dtg_data","courses"),{list});}
+  async function saveShopItems(items){await setDoc(doc(db,"dtg_data","shop"),{items});}
+
+  // Load incoming friend requests
+  useEffect(()=>{
+    // Listen for requests sent TO this user that are pending
+    const q=query(collection(db,"friendRequests"),where("toUid","==",currentUser.uid),where("status","==","pending"));
+    const unsub=onSnapshot(q,snap=>{
+      setFriendReqs(snap.docs.map(d=>({id:d.id,...d.data()})));
+    });
+    return unsub;
+  },[currentUser.uid]);
+
+  async function acceptFriendReq(req){
+    // Update request status
+    await setDoc(doc(db,"friendRequests",req.id),{...req,status:"accepted",acceptedAt:new Date().toISOString()});
+    // Add mutual following
+    const myRef=doc(db,"userFollowing",currentUser.uid);
+    const mySnap=await getDoc(myRef);
+    const myUids=mySnap.exists()?(mySnap.data().uids||[]):[];
+    await setDoc(myRef,{uids:[...myUids,req.fromUid]},{merge:true});
+  }
+
+  async function declineFriendReq(req){
+    await setDoc(doc(db,"friendRequests",req.id),{...req,status:"declined"});
+  }
 
   async function addCommunityPhoto(courseId, photoObj){
     const updated=courses.map(c=>{
@@ -1052,7 +1566,10 @@ function HomeScreen({currentUser, onSelectGroup}){
     const unsubCourses=onSnapshot(doc(db,"dtg_data","courses"),snap=>{
       setCourses(snap.exists()?(snap.data().list||[]):[]);
     });
-    return()=>{unsub();unsubCourses();};
+    const unsubShop=onSnapshot(doc(db,"dtg_data","shop"),snap=>{
+      setShopItems(snap.exists()?(snap.data().items||[]):[]);
+    });
+    return()=>{unsub();unsubCourses();unsubShop();};
   },[]);
   useEffect(()=>{
     async function load(){
@@ -1067,6 +1584,57 @@ function HomeScreen({currentUser, onSelectGroup}){
   },[currentUser.uid]);
 
   async function saveFeed(posts){await setDoc(doc(db,"dtg_feed","posts"),{list:posts});}
+
+  // Load People You May Know when People tab is opened
+  async function loadSuggestions(){
+    setSugsLoading(true);
+    try {
+      // 1. Get who I follow
+      const myFollowSnap=await getDoc(doc(db,"userFollowing",currentUser.uid));
+      const myFollowing=myFollowSnap.exists()?(myFollowSnap.data().uids||[]):[];
+      const mySet=new Set([currentUser.uid,...myFollowing]);
+
+      // 2. For each person I follow, get who THEY follow (friends of friends)
+      const mutualCount={};
+      await Promise.all(myFollowing.map(async uid=>{
+        const snap=await getDoc(doc(db,"userFollowing",uid));
+        const theirFollowing=snap.exists()?(snap.data().uids||[]):[];
+        theirFollowing.forEach(fof=>{
+          if(!mySet.has(fof)){
+            mutualCount[fof]=(mutualCount[fof]||0)+1;
+          }
+        });
+      }));
+
+      // 3. Also check people in same feed rounds
+      const feedSnap=await getDoc(doc(db,"dtg_feed","posts"));
+      const posts=feedSnap.exists()?(feedSnap.data().list||[]):[];
+      posts.forEach(post=>{
+        if((post.players||[]).some(p=>p.uid===currentUser.uid)){
+          (post.players||[]).forEach(p=>{
+            if(!mySet.has(p.uid)){
+              mutualCount[p.uid]=(mutualCount[p.uid]||0)+2; // weight round mates higher
+            }
+          });
+        }
+      });
+
+      // 4. Sort by mutual count, take top 20
+      const sorted=Object.entries(mutualCount)
+        .sort((a,b)=>b[1]-a[1])
+        .slice(0,20)
+        .map(([uid,count])=>({uid,mutuals:count}));
+
+      // 5. Load profiles for suggestions
+      const withProfiles=await Promise.all(sorted.map(async s=>{
+        const pd=await getDoc(doc(db,"userProfiles",s.uid));
+        return{...s,...(pd.exists()?pd.data():{displayName:"DTG Golfer"})};
+      }));
+
+      setSuggestions(withProfiles);
+    } catch(e){console.error(e);}
+    setSugsLoading(false);
+  }
 
   async function handleNewPost(post){
     const updated=[post,...feedPosts].slice(0,500);
@@ -1186,7 +1754,11 @@ function HomeScreen({currentUser, onSelectGroup}){
         <div style={{maxWidth:520,margin:"0 auto",padding:"14px 16px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
           <img src={DTG_LOGO} alt="DTG" style={{height:40,objectFit:"contain"}}/>
           <div style={{display:"flex",gap:8,alignItems:"center"}}>
-            {/* Profile + Caddy buttons always visible */}
+            {/* Profile + Caddy + Friends buttons */}
+            <button className="bh" onClick={()=>setShowFriends(true)} style={{position:"relative",background:"rgba(13,32,16,.8)",border:"1px solid rgba(42,107,52,.3)",borderRadius:10,color:C.creamMuted,padding:"8px 10px",fontSize:16,cursor:"pointer"}}>
+              👥
+              {friendReqs.length>0&&<span style={{position:"absolute",top:-4,right:-4,width:16,height:16,borderRadius:"50%",background:C.greenBright,fontSize:9,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,color:C.bg}}>{friendReqs.length}</span>}
+            </button>
             <button className="bh" onClick={()=>setShowCaddy(true)} style={{background:"rgba(13,32,16,.8)",border:"1px solid rgba(42,107,52,.3)",borderRadius:10,color:C.greenBright,padding:"8px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>🏌️ Caddy</button>
             <button className="bh" onClick={()=>setShowProfile(true)} style={{background:"rgba(13,32,16,.8)",border:"1px solid rgba(42,107,52,.3)",borderRadius:10,color:C.creamDim,padding:"8px",cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
               <Avatar name={currentUser.displayName||""} photo={myProfile?.profilePhoto||null} size={24} radius={12}/>
@@ -1200,7 +1772,7 @@ function HomeScreen({currentUser, onSelectGroup}){
 
         {/* Tabs */}
         <div style={{maxWidth:520,margin:"0 auto",display:"flex",borderTop:"1px solid rgba(42,107,52,.15)"}}>
-          {[{id:"feed",label:"⛳ Feed"},{id:"courses",label:"🗺 Courses"},{id:"groups",label:"👥 Groups"}].map(t=>(
+          {[{id:"feed",label:"⛳ Feed"},{id:"people",label:"👤 People"},{id:"shop",label:"🛍 Shop"},{id:"courses",label:"🗺 Courses"},{id:"groups",label:"👥 Groups"}].map(t=>(
             <button key={t.id} onClick={()=>setTab(t.id)} style={{flex:1,padding:"12px",background:"none",border:"none",cursor:"pointer",fontSize:12,fontWeight:600,color:tab===t.id?C.goldLight:C.creamMuted,borderBottom:tab===t.id?`2px solid ${C.gold}`:"2px solid transparent",transition:"all .15s"}}>
               {t.label}
             </button>
@@ -1236,6 +1808,21 @@ function HomeScreen({currentUser, onSelectGroup}){
             />
           ))}
         </div>
+      )}
+
+      {/* PEOPLE TAB */}
+      {tab==="people"&&(
+        <PeopleTab
+          currentUser={currentUser}
+          suggestions={suggestions}
+          loading={sugsLoading}
+          onLoad={loadSuggestions}
+        />
+      )}
+
+      {/* SHOP TAB */}
+      {tab==="shop"&&(
+        <ShopTab items={shopItems} currentUser={currentUser}/>
       )}
 
       {/* COURSES TAB */}
@@ -1278,7 +1865,8 @@ function HomeScreen({currentUser, onSelectGroup}){
       {/* MY GROUPS TAB */}
       {tab==="groups"&&(
         <div style={{maxWidth:520,margin:"0 auto",padding:"20px 16px"}}>
-          <div style={{fontSize:12,color:C.creamMuted,marginBottom:20,letterSpacing:1}}>Your private group leaderboards</div>
+          <GroupInviteNotice currentUser={currentUser} onAccepted={()=>{window.location.reload();}}/>
+          <div style={{fontSize:12,color:C.creamMuted,marginBottom:16,letterSpacing:1}}>Your private group leaderboards</div>
 
           {groupsLoading&&<div style={{textAlign:"center",padding:"40px"}}><Spinner/></div>}
 
@@ -1334,6 +1922,37 @@ function HomeScreen({currentUser, onSelectGroup}){
         </div>
       )}
 
+      {/* FRIEND REQUESTS INBOX */}
+      {showFriends&&(
+        <div style={{position:"fixed",inset:0,zIndex:400,background:"rgba(0,0,0,.88)",backdropFilter:"blur(8px)",display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={()=>setShowFriends(false)}>
+          <div style={{background:"#1a3a1e",border:"1px solid rgba(42,107,52,.3)",borderRadius:"20px 20px 0 0",padding:"24px 20px 48px",width:"100%",maxWidth:480,maxHeight:"70vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+            <div style={{width:36,height:4,background:"rgba(255,255,255,.2)",borderRadius:2,margin:"0 auto 20px"}}/>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:16,fontWeight:700,color:C.cream,marginBottom:6}}>👥 Friend Requests</div>
+            <div style={{fontSize:12,color:C.creamMuted,marginBottom:20}}>Accept to add them to your network</div>
+            {friendReqs.length===0&&(
+              <div style={{textAlign:"center",padding:"30px 0",color:C.creamMuted}}>
+                <div style={{fontSize:32,marginBottom:10}}>👥</div>
+                <div style={{fontSize:13}}>No pending friend requests</div>
+              </div>
+            )}
+            {friendReqs.map(req=>(
+              <div key={req.id} style={{display:"flex",alignItems:"center",gap:12,marginBottom:16,paddingBottom:16,borderBottom:"1px solid rgba(42,107,52,.15)"}}>
+                <Avatar name={req.fromName} size={46} radius={23}/>
+                <div style={{flex:1}}>
+                  <div style={{fontWeight:600,fontSize:14,color:C.cream}}>{req.fromName}</div>
+                  <div style={{fontSize:11,color:C.creamMuted,marginTop:2}}>wants to be friends · {formatAgo(req.sentAt)}</div>
+                </div>
+                <div style={{display:"flex",gap:8,flexShrink:0}}>
+                  <button className="bh" onClick={()=>acceptFriendReq(req)} style={{background:`linear-gradient(135deg,${C.green},${C.greenLight})`,border:"none",borderRadius:9,color:C.cream,padding:"8px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>Accept</button>
+                  <button className="bh" onClick={()=>declineFriendReq(req)} style={{background:"rgba(255,255,255,.06)",border:"none",borderRadius:9,color:C.creamMuted,padding:"8px 12px",fontSize:12,cursor:"pointer"}}>Decline</button>
+                </div>
+              </div>
+            ))}
+            <button onClick={()=>setShowFriends(false)} style={{width:"100%",background:"rgba(255,255,255,.06)",border:"none",borderRadius:12,color:C.creamMuted,padding:"13px",fontSize:14,cursor:"pointer",marginTop:8}}>Close</button>
+          </div>
+        </div>
+      )}
+
       {/* COURSE PROFILE */}
       {viewCourse&&(
         <CourseProfile
@@ -1349,6 +1968,8 @@ function HomeScreen({currentUser, onSelectGroup}){
         <DtgAdminPanel
           courses={courses}
           onSaveCourses={saveCourses}
+          shopItems={shopItems}
+          onSaveShop={saveShopItems}
           onClose={()=>setShowDtgAdmin(false)}
         />
       )}
@@ -2274,6 +2895,127 @@ function GameView({members, games, saveGames, currentUser}){
   return null;
 }
 
+// ─── INVITE FRIENDS MODAL ────────────────────────────────────────────────────
+function InviteFriendsModal({currentUser, groupId, groupName, myFollowing, allProfiles, existingMembers, onInvite, onClose}){
+  const [sent,    setSent]    = useState({});
+  const [search,  setSearch]  = useState("");
+
+  const friends=myFollowing
+    .filter(uid=>!existingMembers.includes(uid))
+    .map(uid=>allProfiles[uid]||{uid,displayName:"Unknown"})
+    .filter(f=>(f.displayName||"").toLowerCase().includes(search.toLowerCase()));
+
+  async function handleInvite(uid,name){
+    await onInvite(uid,name);
+    setSent(s=>({...s,[uid]:true}));
+  }
+
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:400,background:"rgba(0,0,0,.88)",backdropFilter:"blur(8px)",display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={onClose}>
+      <div style={{background:"#1a3a1e",border:"1px solid rgba(42,107,52,.3)",borderRadius:"20px 20px 0 0",padding:"24px 20px 48px",width:"100%",maxWidth:480,maxHeight:"80vh",display:"flex",flexDirection:"column"}} onClick={e=>e.stopPropagation()}>
+        <div style={{width:36,height:4,background:"rgba(255,255,255,.2)",borderRadius:2,margin:"0 auto 20px"}}/>
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:16,fontWeight:700,color:C.cream,marginBottom:4}}>Invite Friends</div>
+        <div style={{fontSize:12,color:C.creamMuted,marginBottom:16}}>Invite your DTG friends to join <strong style={{color:C.creamDim}}>{groupName}</strong></div>
+
+        {/* Search */}
+        <input
+          value={search}
+          onChange={e=>setSearch(e.target.value)}
+          placeholder="Search friends..."
+          style={{...iStyle(false),marginBottom:16,fontSize:13}}
+        />
+
+        <div style={{overflowY:"auto",flex:1}}>
+          {myFollowing.length===0&&(
+            <div style={{textAlign:"center",padding:"30px 0",color:C.creamMuted}}>
+              <div style={{fontSize:32,marginBottom:10}}>👥</div>
+              <div style={{fontSize:13,marginBottom:4}}>No friends yet</div>
+              <div style={{fontSize:11}}>Follow people on the main feed first, then invite them here</div>
+            </div>
+          )}
+          {myFollowing.length>0&&friends.length===0&&(
+            <div style={{textAlign:"center",padding:"20px 0",color:C.creamMuted,fontSize:13}}>All your friends are already in this group 🎉</div>
+          )}
+          {friends.map(f=>(
+            <div key={f.uid} style={{display:"flex",alignItems:"center",gap:12,marginBottom:14,paddingBottom:14,borderBottom:"1px solid rgba(42,107,52,.12)"}}>
+              <Avatar name={f.displayName||""} photo={f.profilePhoto||null} size={44} radius={22}/>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:600,fontSize:14,color:C.cream}}>{f.displayName}</div>
+                {f.homeCourse&&<div style={{fontSize:11,color:C.creamMuted,marginTop:2}}>🏌️ {f.homeCourse}</div>}
+              </div>
+              <button
+                className="bh"
+                onClick={()=>handleInvite(f.uid,f.displayName)}
+                disabled={sent[f.uid]}
+                style={{background:sent[f.uid]?"rgba(42,107,52,.2)":`linear-gradient(135deg,${C.gold},${C.goldDim})`,border:sent[f.uid]?"1px solid rgba(77,184,96,.3)":"none",borderRadius:10,color:sent[f.uid]?C.greenBright:"#0a1a0c",padding:"9px 16px",fontSize:12,fontWeight:700,cursor:sent[f.uid]?"default":"pointer",whiteSpace:"nowrap"}}
+              >
+                {sent[f.uid]?"Invited ✓":"Invite"}
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <button onClick={onClose} style={{width:"100%",background:"rgba(255,255,255,.06)",border:"none",borderRadius:12,color:C.creamMuted,padding:"13px",fontSize:14,cursor:"pointer",marginTop:16}}>Close</button>
+      </div>
+    </div>
+  );
+}
+
+// ─── GROUP INVITE INBOX (shown on HomeScreen for pending group invites) ───────
+function GroupInviteNotice({currentUser, onAccepted}){
+  const [invites, setInvites] = useState([]);
+
+  useEffect(()=>{
+    const q=query(collection(db,"groupInvites"),where("toUid","==",currentUser.uid),where("status","==","pending"));
+    return onSnapshot(q,snap=>{setInvites(snap.docs.map(d=>({id:d.id,...d.data()})));});
+  },[currentUser.uid]);
+
+  async function accept(invite){
+    // Add user to the group
+    const gSnap=await getDoc(doc(db,"groups",invite.groupId));
+    if(!gSnap.exists())return;
+    const group=gSnap.data();
+    const member={uid:currentUser.uid,displayName:currentUser.displayName||currentUser.email,email:currentUser.email,joinedAt:new Date().toISOString(),isAdmin:false};
+    const already=(group.membersList||[]).some(m=>m.uid===currentUser.uid);
+    if(!already){
+      await setDoc(doc(db,"groups",invite.groupId),{...group,membersList:[...(group.membersList||[]),member]});
+    }
+    // Add to user's groupIds
+    const uDoc=await getDoc(doc(db,"users",currentUser.uid));
+    const existing=uDoc.exists()?(uDoc.data().groupIds||[]):[];
+    if(!existing.includes(invite.groupId)){
+      await setDoc(doc(db,"users",currentUser.uid),{groupIds:[...existing,invite.groupId]},{merge:true});
+    }
+    // Mark invite accepted
+    await setDoc(doc(db,"groupInvites",invite.id),{...invite,status:"accepted"});
+    onAccepted();
+  }
+
+  async function decline(invite){
+    await setDoc(doc(db,"groupInvites",invite.id),{...invite,status:"declined"});
+  }
+
+  if(invites.length===0)return null;
+
+  return(
+    <div style={{margin:"0 0 16px"}}>
+      {invites.map(inv=>(
+        <div key={inv.id} style={{background:"linear-gradient(135deg,rgba(201,162,39,.1),rgba(26,77,36,.15))",border:"1px solid rgba(201,162,39,.25)",borderRadius:14,padding:"14px 16px",marginBottom:8,display:"flex",alignItems:"center",gap:12}}>
+          <div style={{fontSize:24,flexShrink:0}}>🏌️</div>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:600,fontSize:13,color:C.cream}}>{inv.fromName} invited you to join</div>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:14,fontWeight:700,color:C.goldLight,marginTop:2}}>{inv.groupName}</div>
+          </div>
+          <div style={{display:"flex",gap:8,flexShrink:0}}>
+            <button className="bh" onClick={()=>accept(inv)} style={{background:`linear-gradient(135deg,${C.gold},${C.goldDim})`,border:"none",borderRadius:9,color:"#0a1a0c",padding:"8px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>Join</button>
+            <button className="bh" onClick={()=>decline(inv)} style={{background:"rgba(255,255,255,.05)",border:"none",borderRadius:9,color:C.creamMuted,padding:"8px 12px",fontSize:12,cursor:"pointer"}}>✕</button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── GROUP APP (Main leaderboard experience) ──────────────────────────────────
 function GroupApp({currentUser, group, onLeaveGroup}){
   const groupId = group.id;
@@ -2312,10 +3054,13 @@ function GroupApp({currentUser, group, onLeaveGroup}){
   const [memberEditName,  setMemberEditName]  = useState("");
   const [annForm,      setAnnForm]      = useState({title:"",text:"",type:"info"});
   const [annPreview,   setAnnPreview]   = useState(false);
-  const [showInvite,   setShowInvite]   = useState(false);
-  const [copied,       setCopied]       = useState(false);
-  const [showProfileEdit, setShowProfileEdit] = useState(false);
-  const [showCreatePost,  setShowCreatePost]  = useState(false);
+  const [showInvite,        setShowInvite]        = useState(false);
+  const [showInviteFriends, setShowInviteFriends] = useState(false);
+  const [myFollowing,       setMyFollowing]       = useState([]);
+  const [allProfiles,       setAllProfiles]       = useState({});
+  const [copied,            setCopied]            = useState(false);
+  const [showProfileEdit,   setShowProfileEdit]   = useState(false);
+  const [showCreatePost,    setShowCreatePost]    = useState(false);
 
   const roundsRef  = useRef([]);
   const pendingRef = useRef([]);
@@ -2342,11 +3087,25 @@ function GroupApp({currentUser, group, onLeaveGroup}){
     const unsubBags=onSnapshot(doc(db,groupId,"bags"),snap=>{setBags(snap.exists()?(snap.data().map||{}):{});});
     const unsubAnn=onSnapshot(doc(db,groupId,"announcement"),snap=>{setAnnouncement(snap.exists()&&snap.data().text?snap.data():null);});
     const unsubG=onSnapshot(doc(db,"groups",groupId),snap=>{if(snap.exists())setGroupData(snap.data());});
+    // Load who the current user follows
+    const unsubFollowing=onSnapshot(doc(db,"userFollowing",currentUser.uid),async snap=>{
+      const uids=snap.exists()?(snap.data().uids||[]):[];
+      setMyFollowing(uids);
+      // Load profiles for all followed users
+      if(uids.length>0){
+        const profiles={};
+        await Promise.all(uids.map(async uid=>{
+          const pd=await getDoc(doc(db,"userProfiles",uid));
+          if(pd.exists())profiles[uid]={...pd.data(),uid};
+        }));
+        setAllProfiles(profiles);
+      }
+    });
     const unsubFeed=onSnapshot(doc(db,groupId,"feed"),snap=>{setFeedPosts(snap.exists()?(snap.data().list||[]):[]);});
     // Load profiles for all group members
     const unsubProfiles = onSnapshot(doc(db,groupId,"userProfiles"),snap=>{setUserProfiles(snap.exists()?(snap.data().map||{}):{});});
     const unsubGames = onSnapshot(doc(db,groupId,"games"),snap=>{setGames(snap.exists()?(snap.data().list||[]):[]);});
-    return()=>{unsubR();unsubP();unsubS();unsubRxn();unsubCmt();unsubPho();unsubBags();unsubAnn();unsubG();unsubFeed();unsubProfiles();unsubGames();};
+    return()=>{unsubR();unsubP();unsubS();unsubRxn();unsubCmt();unsubPho();unsubBags();unsubAnn();unsubG();unsubFeed();unsubProfiles();unsubGames();unsubFollowing();};
   },[groupId]);
 
   async function saveRounds(nr)    {roundsRef.current=nr; setRounds(nr);    await setDoc(doc(db,groupId,"rounds"),{list:nr});}
@@ -2454,6 +3213,20 @@ function GroupApp({currentUser, group, onLeaveGroup}){
 
   function copyInvite(){navigator.clipboard.writeText(groupData.inviteCode).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),2000);});}
 
+  async function inviteFriendToGroup(friendUid,friendName){
+    const inviteId=currentUser.uid+"_"+friendUid+"_"+groupId;
+    await setDoc(doc(db,"groupInvites",inviteId),{
+      fromUid:currentUser.uid,
+      fromName:currentUser.displayName||"",
+      toUid:friendUid,
+      toName:friendName,
+      groupId,
+      groupName:groupData.name,
+      status:"pending",
+      sentAt:new Date().toISOString(),
+    });
+  }
+
   const rankings     = getRankings(rounds,members);
   const pendingCount = pending.filter(p=>p.status==="pending").length;
   const recentRounds = [...rounds].sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0,4);
@@ -2490,7 +3263,7 @@ function GroupApp({currentUser, group, onLeaveGroup}){
               </div>
             </div>
             <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",justifyContent:"flex-end"}}>
-              <button className="bh" onClick={()=>setShowInvite(v=>!v)} style={{background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.1)",borderRadius:9,color:C.creamMuted,padding:"7px 12px",fontSize:11,cursor:"pointer",letterSpacing:1}}>🔗 INVITE</button>
+              <button className="bh" onClick={()=>setShowInviteFriends(true)} style={{background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.1)",borderRadius:9,color:C.creamMuted,padding:"7px 12px",fontSize:11,cursor:"pointer",letterSpacing:1}}>👥 INVITE</button>
               {isAdmin&&<button className="bh" onClick={()=>setView("admin")} style={{background:"rgba(201,162,39,.15)",border:"1px solid rgba(201,162,39,.3)",borderRadius:9,color:C.gold,padding:"7px 12px",fontSize:11,cursor:"pointer",letterSpacing:1,position:"relative"}}>ADMIN{pendingCount>0&&<span className="pulse" style={{position:"absolute",top:-6,right:-6,width:18,height:18,borderRadius:"50%",background:C.greenBright,fontSize:9,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,color:C.bg}}>{pendingCount}</span>}</button>}
               <button className="bh" onClick={()=>{setEditRound(null);setForm(emptyForm());setErrors({});setView("submit");}} style={{background:`linear-gradient(135deg,${C.gold},${C.goldDim})`,border:"none",borderRadius:10,color:"#0a1a0c",padding:"9px 16px",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>+ POST ROUND</button>
             </div>
@@ -2508,6 +3281,20 @@ function GroupApp({currentUser, group, onLeaveGroup}){
           </div>
         </div>
       </div>
+
+      {/* Invite Friends Modal */}
+      {showInviteFriends&&(
+        <InviteFriendsModal
+          currentUser={currentUser}
+          groupId={groupId}
+          groupName={groupData.name}
+          myFollowing={myFollowing}
+          allProfiles={allProfiles}
+          existingMembers={(groupData.membersList||[]).map(m=>m.uid)}
+          onInvite={inviteFriendToGroup}
+          onClose={()=>setShowInviteFriends(false)}
+        />
+      )}
 
       {/* Profile Edit Modal */}
       {showProfileEdit&&(
