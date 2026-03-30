@@ -48,6 +48,9 @@ const SEED_SCHEDULE = [{
   createdAt:new Date().toISOString(),
 }];
 
+// ─── DTG GLOBAL ADMIN ────────────────────────────────────────────────────────
+const DTG_ADMIN_UID = "QVS8XEaiEKh4AcFwQNtteXnIAa93";
+
 // ─── COLORS ───────────────────────────────────────────────────────────────────
 const C = {
   bg:"#1e4d26", card:"#0d2010", cardMid:"#112614",
@@ -517,6 +520,210 @@ function MatchPostCard({post, currentUser, onJoin, onLeave, onDelete, isOwner}){
   );
 }
 
+// ─── DTG ADMIN PANEL ─────────────────────────────────────────────────────────
+function DtgAdminPanel({courses, onSaveCourses, onClose}){
+  const [view,        setView]        = useState("list"); // list | add | edit | holes
+  const [editCourse,  setEditCourse]  = useState(null);
+  const [holesCourse, setHolesCourse] = useState(null);
+  const [saving,      setSaving]      = useState(false);
+
+  // Course form
+  const emptyCourse=()=>({id:"c_"+Date.now(),name:"",city:"",state:"FL",holes:18,tees:[{name:"Blue",color:"#1a4dcc",rating:"",slope:"",yardages:Array(18).fill("")},{name:"White",color:"#e8e8e8",rating:"",slope:"",yardages:Array(18).fill("")},{name:"Red",color:"#cc1a1a",rating:"",slope:"",yardages:Array(18).fill("")}],pars:Array(18).fill("4"),handicaps:Array(18).fill(""),createdAt:new Date().toISOString()});
+  const [form, setForm] = useState(emptyCourse());
+
+  function startAdd(){setForm(emptyCourse());setView("add");}
+  function startEdit(c){setForm({...c,tees:c.tees.map(t=>({...t,yardages:[...t.yardages]})),pars:[...c.pars],handicaps:[...c.handicaps]});setView("edit");}
+  function startHoles(c){setHolesCourse({...c,tees:c.tees.map(t=>({...t,yardages:[...t.yardages]})),pars:[...c.pars],handicaps:[...c.handicaps]});setView("holes");}
+
+  async function saveCourse(){
+    setSaving(true);
+    const updated=view==="edit"?courses.map(c=>c.id===form.id?form:c):[...courses,form];
+    await onSaveCourses(updated);
+    setSaving(false);
+    setView("list");
+  }
+
+  async function saveHoles(){
+    setSaving(true);
+    await onSaveCourses(courses.map(c=>c.id===holesCourse.id?holesCourse:c));
+    setSaving(false);
+    setView("list");
+  }
+
+  async function deleteCourse(id){
+    if(!window.confirm("Delete this course?"))return;
+    await onSaveCourses(courses.filter(c=>c.id!==id));
+  }
+
+  function updatePar(i,v){setForm(f=>({...f,pars:f.pars.map((p,pi)=>pi===i?v:p)}));}
+  function updateHcp(i,v){setForm(f=>({...f,handicaps:f.handicaps.map((h,hi)=>hi===i?v:h)}));}
+  function updateTeeRating(ti,field,v){setForm(f=>({...f,tees:f.tees.map((t,idx)=>idx===ti?{...t,[field]:v}:t)}));}
+  function updateYardage(ti,hi,v){setForm(f=>({...f,tees:f.tees.map((t,idx)=>idx===ti?{...t,yardages:t.yardages.map((y,yi)=>yi===hi?v:y)}:t)}));}
+  function updateHolesPar(i,v){setHolesCourse(c=>({...c,pars:c.pars.map((p,pi)=>pi===i?v:p)}));}
+  function updateHolesHcp(i,v){setHolesCourse(c=>({...c,handicaps:c.handicaps.map((h,hi)=>hi===i?v:h)}));}
+  function updateHolesYardage(ti,hi,v){setHolesCourse(c=>({...c,tees:c.tees.map((t,idx)=>idx===ti?{...t,yardages:t.yardages.map((y,yi)=>yi===hi?v:y)}:t)}));}
+
+  const numHoles=form.holes||18;
+
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:400,background:"#0a1a0c",overflowY:"auto",fontFamily:"'DM Sans',sans-serif",color:C.cream}}>
+      <style>{css}</style>
+      <div style={{maxWidth:640,margin:"0 auto",padding:"16px 16px 60px"}}>
+
+        {/* Header */}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:24,paddingTop:8}}>
+          <div>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:18,fontWeight:700,color:C.gold,letterSpacing:2}}>⚙️ DTG ADMIN</div>
+            <div style={{fontSize:11,color:C.creamMuted,marginTop:2}}>Course database · Global settings</div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:"none",color:C.creamMuted,fontSize:13,cursor:"pointer"}}>✕ Close</button>
+        </div>
+
+        {/* COURSE LIST */}
+        {view==="list"&&(
+          <div>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+              <div style={{fontFamily:"'Cinzel',serif",fontSize:15,fontWeight:600,color:C.cream}}>Courses ({courses.length})</div>
+              <button className="bh" onClick={startAdd} style={{background:`linear-gradient(135deg,${C.gold},${C.goldDim})`,border:"none",borderRadius:10,color:"#0a1a0c",padding:"9px 16px",fontSize:12,fontWeight:700,cursor:"pointer"}}>+ Add Course</button>
+            </div>
+            {courses.length===0&&<Empty msg="No courses yet — add your first course"/>}
+            {courses.map(c=>(
+              <div key={c.id} style={{background:"rgba(13,32,16,.8)",border:"1px solid rgba(42,107,52,.2)",borderRadius:14,padding:"16px 18px",marginBottom:10}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
+                  <div style={{flex:1}}>
+                    <div style={{fontFamily:"'Cinzel',serif",fontSize:15,fontWeight:700,color:C.cream}}>{c.name}</div>
+                    <div style={{fontSize:12,color:C.creamMuted,marginTop:3}}>{c.city}, {c.state} · {c.holes} holes · {c.tees?.length||0} tees</div>
+                  </div>
+                  <div style={{display:"flex",gap:8,flexShrink:0}}>
+                    <button className="bh" onClick={()=>startHoles(c)} style={{background:"rgba(42,107,52,.2)",border:"1px solid rgba(42,107,52,.35)",borderRadius:8,color:C.greenBright,padding:"6px 12px",fontSize:11,cursor:"pointer",fontWeight:600}}>Holes</button>
+                    <button className="bh" onClick={()=>startEdit(c)} style={{background:"rgba(201,162,39,.1)",border:"1px solid rgba(201,162,39,.3)",borderRadius:8,color:C.goldLight,padding:"6px 12px",fontSize:11,cursor:"pointer"}}>Edit</button>
+                    <button className="bh" onClick={()=>deleteCourse(c.id)} style={{background:"rgba(192,64,64,.1)",border:"1px solid rgba(192,64,64,.25)",borderRadius:8,color:"#c07070",padding:"6px 12px",fontSize:11,cursor:"pointer"}}>Del</button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ADD / EDIT COURSE */}
+        {(view==="add"||view==="edit")&&(
+          <div>
+            <button className="bh" onClick={()=>setView("list")} style={{background:"none",border:"none",color:C.creamMuted,fontSize:12,cursor:"pointer",letterSpacing:2,marginBottom:16}}>← BACK</button>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:16,fontWeight:600,color:C.cream,marginBottom:20}}>{view==="add"?"ADD COURSE":"EDIT COURSE"}</div>
+
+            <div style={{background:"rgba(13,32,16,.85)",border:"1px solid rgba(42,107,52,.25)",borderRadius:16,padding:"20px",display:"flex",flexDirection:"column",gap:14,marginBottom:16}}>
+              <Field label="Course Name"><input value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="e.g. Juliette Falls Golf Course" style={iStyle(false)}/></Field>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
+                <Field label="City"><input value={form.city} onChange={e=>setForm(f=>({...f,city:e.target.value}))} placeholder="Tampa" style={iStyle(false)}/></Field>
+                <Field label="State"><input value={form.state} onChange={e=>setForm(f=>({...f,state:e.target.value}))} placeholder="FL" style={iStyle(false)}/></Field>
+                <Field label="Holes">
+                  <div style={{display:"flex",gap:8}}>
+                    {[9,18].map(n=><button key={n} onClick={()=>setForm(f=>({...f,holes:n,pars:Array(n).fill("4"),handicaps:Array(n).fill(""),tees:f.tees.map(t=>({...t,yardages:Array(n).fill("")}))}))} style={{flex:1,padding:"11px",borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:700,background:form.holes===n?`linear-gradient(135deg,${C.green},${C.greenLight})`:"rgba(5,14,6,.7)",border:form.holes===n?"1px solid rgba(77,184,96,.4)":"1px solid rgba(42,107,52,.3)",color:form.holes===n?C.cream:C.creamMuted}}>{n}</button>)}
+                  </div>
+                </Field>
+              </div>
+
+              {/* Tee ratings */}
+              <div style={{fontSize:10,color:C.creamMuted,letterSpacing:2,textTransform:"uppercase",marginBottom:4}}>Tee Ratings</div>
+              {form.tees.map((t,ti)=>(
+                <div key={ti} style={{display:"grid",gridTemplateColumns:"auto 1fr 1fr",gap:10,alignItems:"center"}}>
+                  <div style={{width:16,height:16,borderRadius:"50%",background:t.color,border:"1px solid rgba(255,255,255,.2)",flexShrink:0}}/>
+                  <Field label={`${t.name} Rating`}><input type="number" value={t.rating} onChange={e=>updateTeeRating(ti,"rating",e.target.value)} placeholder="71.4" step="0.1" style={{...iStyle(false),padding:"8px 10px"}}/></Field>
+                  <Field label="Slope"><input type="number" value={t.slope} onChange={e=>updateTeeRating(ti,"slope",e.target.value)} placeholder="128" style={{...iStyle(false),padding:"8px 10px"}}/></Field>
+                </div>
+              ))}
+            </div>
+
+            {/* Par + Handicap per hole */}
+            <div style={{background:"rgba(13,32,16,.85)",border:"1px solid rgba(42,107,52,.25)",borderRadius:16,padding:"20px",marginBottom:16}}>
+              <div style={{fontSize:10,color:C.creamMuted,letterSpacing:2,textTransform:"uppercase",marginBottom:14}}>Par & Handicap Index per Hole</div>
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                  <thead>
+                    <tr>
+                      <th style={{color:C.creamMuted,padding:"4px 6px",textAlign:"center",minWidth:36}}>Hole</th>
+                      <th style={{color:C.creamMuted,padding:"4px 6px",textAlign:"center",minWidth:50}}>Par</th>
+                      <th style={{color:C.creamMuted,padding:"4px 6px",textAlign:"center",minWidth:50}}>HCP</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Array.from({length:numHoles},(_,i)=>(
+                      <tr key={i} style={{borderTop:"1px solid rgba(42,107,52,.1)"}}>
+                        <td style={{padding:"4px 6px",textAlign:"center",color:C.creamDim,fontWeight:600}}>{i+1}</td>
+                        <td style={{padding:"4px 6px"}}>
+                          <select value={form.pars[i]||"4"} onChange={e=>updatePar(i,e.target.value)} style={{...iStyle(false),padding:"5px 6px",fontSize:12,textAlign:"center",appearance:"none",cursor:"pointer"}}>
+                            <option>3</option><option>4</option><option>5</option>
+                          </select>
+                        </td>
+                        <td style={{padding:"4px 6px"}}>
+                          <input type="number" value={form.handicaps[i]||""} onChange={e=>updateHcp(i,e.target.value)} placeholder="—" min="1" max="18" style={{...iStyle(false),padding:"5px 6px",fontSize:12,textAlign:"center",width:"100%"}}/>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <button className="bh" onClick={saveCourse} disabled={!form.name.trim()||saving} style={{width:"100%",background:form.name.trim()?`linear-gradient(135deg,${C.gold},${C.goldDim})`:"rgba(60,60,60,.3)",border:"none",borderRadius:12,color:form.name.trim()?"#0a1a0c":C.creamMuted,padding:"14px",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"'Cinzel',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>{saving?<><Spinner/>Saving…</>:view==="add"?"ADD COURSE ⛳":"SAVE CHANGES"}</button>
+          </div>
+        )}
+
+        {/* HOLE YARDAGES */}
+        {view==="holes"&&holesCourse&&(
+          <div>
+            <button className="bh" onClick={()=>setView("list")} style={{background:"none",border:"none",color:C.creamMuted,fontSize:12,cursor:"pointer",letterSpacing:2,marginBottom:16}}>← BACK</button>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:15,fontWeight:600,color:C.cream,marginBottom:4}}>{holesCourse.name}</div>
+            <div style={{fontSize:12,color:C.creamMuted,marginBottom:20}}>Enter yardages for each tee per hole</div>
+
+            <div style={{overflowX:"auto",marginBottom:20}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:400}}>
+                <thead>
+                  <tr>
+                    <th style={{color:C.creamMuted,padding:"6px 8px",textAlign:"center"}}>Hole</th>
+                    <th style={{color:C.creamMuted,padding:"6px 8px",textAlign:"center"}}>Par</th>
+                    {holesCourse.tees.map((t,ti)=>(
+                      <th key={ti} style={{color:C.creamMuted,padding:"6px 8px",textAlign:"center"}}>
+                        <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
+                          <div style={{width:10,height:10,borderRadius:"50%",background:t.color}}/>
+                          {t.name}
+                        </div>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {Array.from({length:holesCourse.holes||18},(_,i)=>(
+                    <tr key={i} style={{borderTop:"1px solid rgba(42,107,52,.1)"}}>
+                      <td style={{padding:"5px 8px",textAlign:"center",color:C.goldLight,fontFamily:"'Cinzel',serif",fontWeight:700}}>{i+1}</td>
+                      <td style={{padding:"5px 8px",textAlign:"center",color:C.creamDim}}>Par {holesCourse.pars[i]||4}</td>
+                      {holesCourse.tees.map((t,ti)=>(
+                        <td key={ti} style={{padding:"4px 6px"}}>
+                          <input type="number" value={t.yardages[i]||""} onChange={e=>updateHolesYardage(ti,i,e.target.value)} placeholder="—" min="50" max="700" style={{...iStyle(false),padding:"5px 6px",fontSize:12,textAlign:"center",width:"100%",minWidth:60}}/>
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                  {/* Totals row */}
+                  <tr style={{borderTop:"2px solid rgba(42,107,52,.3)"}}>
+                    <td style={{padding:"6px 8px",textAlign:"center",color:C.creamMuted,fontSize:11}}>Total</td>
+                    <td style={{padding:"6px 8px",textAlign:"center",color:C.creamDim,fontWeight:600}}>{holesCourse.pars.reduce((s,p)=>s+(+p||0),0)}</td>
+                    {holesCourse.tees.map((t,ti)=>(
+                      <td key={ti} style={{padding:"6px 8px",textAlign:"center",color:C.goldLight,fontFamily:"'Cinzel',serif",fontWeight:700}}>{t.yardages.reduce((s,y)=>s+(+y||0),0)}</td>
+                    ))}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <button className="bh" onClick={saveHoles} disabled={saving} style={{width:"100%",background:`linear-gradient(135deg,${C.gold},${C.goldDim})`,border:"none",borderRadius:12,color:"#0a1a0c",padding:"14px",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"'Cinzel',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>{saving?<><Spinner/>Saving…</>:"SAVE YARDAGES ⛳"}</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── HOME SCREEN (Feed + My Groups tabs) ─────────────────────────────────────
 function HomeScreen({currentUser, onSelectGroup}){
   const [tab,           setTab]           = useState("feed");
@@ -529,12 +736,15 @@ function HomeScreen({currentUser, onSelectGroup}){
   const [showNewPost,   setShowNewPost]   = useState(false);
   const [showProfile,   setShowProfile]   = useState(false);
   const [showCaddy,     setShowCaddy]     = useState(false);
+  const [showDtgAdmin,  setShowDtgAdmin]  = useState(false);
   const [myProfile,     setMyProfile]     = useState({});
   const [myBag,         setMyBag]         = useState({});
+  const [courses,       setCourses]       = useState([]);
   const [groupName,     setGroupName]     = useState("");
   const [inviteInput,   setInviteInput]   = useState("");
   const [working,       setWorking]       = useState(false);
   const [error,         setError]         = useState("");
+  const isDtgAdmin = currentUser.uid === DTG_ADMIN_UID;
 
   // Load global feed
   useEffect(()=>{
@@ -574,16 +784,17 @@ function HomeScreen({currentUser, onSelectGroup}){
     await saveMyBag(map[key]||{});
   }
 
-  // Load global feed
+  // Load global feed + courses
   useEffect(()=>{
     const unsub=onSnapshot(doc(db,"dtg_feed","posts"),snap=>{
       setFeedPosts(snap.exists()?(snap.data().list||[]):[]);
       setFeedLoading(false);
     });
-    return unsub;
+    const unsubCourses=onSnapshot(doc(db,"dtg_data","courses"),snap=>{
+      setCourses(snap.exists()?(snap.data().list||[]):[]);
+    });
+    return()=>{unsub();unsubCourses();};
   },[]);
-
-  // Load user's groups
   useEffect(()=>{
     async function load(){
       const uDoc=await getDoc(doc(db,"users",currentUser.uid));
@@ -735,6 +946,7 @@ function HomeScreen({currentUser, onSelectGroup}){
               {t.label}
             </button>
           ))}
+          {isDtgAdmin&&<button onClick={()=>setShowDtgAdmin(true)} style={{padding:"12px 14px",background:"none",border:"none",cursor:"pointer",fontSize:11,color:C.gold,borderBottom:"2px solid transparent",fontWeight:600}}>⚙️ Admin</button>}
           <button onClick={()=>signOut(auth)} style={{padding:"12px 14px",background:"none",border:"none",cursor:"pointer",fontSize:11,color:C.creamMuted,borderBottom:"2px solid transparent"}}>Sign Out</button>
         </div>
       </div>
@@ -825,11 +1037,18 @@ function HomeScreen({currentUser, onSelectGroup}){
           )}
         </div>
       )}
+
+      {/* DTG ADMIN MODAL */}
+      {showDtgAdmin&&isDtgAdmin&&(
+        <DtgAdminPanel
+          courses={courses}
+          onSaveCourses={async(list)=>{await setDoc(doc(db,"dtg_data","courses"),{list});}}
+          onClose={()=>setShowDtgAdmin(false)}
+        />
+      )}
     </div>
   );
 }
-
-// ─── ROOT ─────────────────────────────────────────────────────────────────────
 export default function DTG(){
   const [user,        setUser]        = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
