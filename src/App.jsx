@@ -3133,12 +3133,17 @@ function GroupApp({currentUser, group, onLeaveGroup}){
     const unsubFollowing=onSnapshot(doc(db,"userFollowing",currentUser.uid),async snap=>{
       const uids=snap.exists()?(snap.data().uids||[]):[];
       setMyFollowing(uids);
-      // Load profiles for all followed users
+      // Load profiles — check both users (signup name) and userProfiles (extended)
       if(uids.length>0){
         const profiles={};
         await Promise.all(uids.map(async uid=>{
-          const pd=await getDoc(doc(db,"userProfiles",uid));
-          if(pd.exists())profiles[uid]={...pd.data(),uid};
+          const [userDoc,profileDoc]=await Promise.all([
+            getDoc(doc(db,"users",uid)),
+            getDoc(doc(db,"userProfiles",uid)),
+          ]);
+          const base=userDoc.exists()?userDoc.data():{};
+          const profile=profileDoc.exists()?profileDoc.data():{};
+          profiles[uid]={uid,...base,...profile};
         }));
         setAllProfiles(profiles);
       }
