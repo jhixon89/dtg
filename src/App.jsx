@@ -141,8 +141,8 @@ function AuthScreen({onGuest}){
         {/* Logo */}
         <div style={{textAlign:"center",marginBottom:36}}>
           <div style={{fontSize:52,marginBottom:12}}>⛳</div>
-          <div style={{fontFamily:"'Cinzel',serif",fontSize:24,fontWeight:700,letterSpacing:3,color:C.cream}}>Down To Golf</div>
-          <div style={{fontSize:11,color:C.creamMuted,letterSpacing:4,textTransform:"uppercase",marginTop:4}}>Find golfers near you</div>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:24,fontWeight:700,letterSpacing:3,color:C.cream}}>Are You Down To Golf?</div>
+          <div style={{fontSize:11,color:C.creamMuted,letterSpacing:4,textTransform:"uppercase",marginTop:4}}>dt.golf</div>
         </div>
 
         <div style={{background:"rgba(13,32,16,.9)",border:"1px solid rgba(42,107,52,.3)",borderRadius:20,padding:"32px 28px",boxShadow:"0 24px 80px rgba(0,0,0,.5)"}}>
@@ -171,7 +171,7 @@ function AuthScreen({onGuest}){
             {error&&<div style={{background:"rgba(192,64,64,.1)",border:"1px solid rgba(192,64,64,.3)",borderRadius:9,padding:"10px 14px",color:"#e07070",fontSize:13}}>{error}</div>}
 
             <button className="bh" onClick={handleSubmit} disabled={loading} style={{background:loading?"rgba(60,60,60,.4)":`linear-gradient(135deg,${C.gold},${C.goldDim})`,border:"none",borderRadius:12,color:loading?C.creamMuted:"#0a1a0c",padding:"14px",fontSize:14,fontWeight:700,cursor:loading?"not-allowed":"pointer",letterSpacing:1,fontFamily:"'Cinzel',sans-serif",boxShadow:loading?"none":"0 6px 24px rgba(201,162,39,.25)",display:"flex",alignItems:"center",justifyContent:"center",gap:8,transition:"all .2s"}}>
-              {loading?<><Spinner/> {mode==="signup"?"Creating Account…":"Signing In…"}</>:mode==="signup"?"JOIN DTG ⛳":"SIGN IN"}
+              {loading?<><Spinner/> {mode==="signup"?"Creating Account…":"Signing In…"}</>:mode==="signup"?"DOWN TO GOLF ⛳":"SIGN IN"}
             </button>
           </div>
         </div>
@@ -181,7 +181,7 @@ function AuthScreen({onGuest}){
           Browse the feed without signing up →
         </button>
 
-        <div style={{textAlign:"center",fontSize:12,color:C.creamMuted}}>dt.golf · Find golfers near you</div>
+        <div style={{textAlign:"center",fontSize:12,color:C.creamMuted}}>dt.golf · dt.golf</div>
       </div>
     </div>
   );
@@ -850,8 +850,8 @@ export default function DTG(){
         <style>{css}</style>
         <div style={{textAlign:"center"}}>
           <div style={{fontSize:52,marginBottom:16}}>⛳</div>
-          <div style={{fontFamily:"'Cinzel',serif",fontSize:24,fontWeight:700,letterSpacing:3,color:"#f5f0e8"}}>Down To Golf</div>
-          <div style={{fontSize:11,color:"#7a7060",letterSpacing:4,marginTop:4,textTransform:"uppercase"}}>Find golfers near you</div>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:24,fontWeight:700,letterSpacing:3,color:"#f5f0e8"}}>Are You Down To Golf?</div>
+          <div style={{fontSize:11,color:"#7a7060",letterSpacing:4,marginTop:4,textTransform:"uppercase"}}>dt.golf</div>
           <div style={{marginTop:20}}><Spinner/></div>
         </div>
       </div>
@@ -888,7 +888,7 @@ function GuestFeedScreen({onSignUp}){
         <div style={{position:"fixed",inset:0,zIndex:400,background:"rgba(0,0,0,.9)",backdropFilter:"blur(10px)",display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
           <div style={{background:"#0d2010",border:"1px solid rgba(42,107,52,.3)",borderRadius:20,padding:"36px 28px",width:"100%",maxWidth:380,textAlign:"center"}}>
             <div style={{fontSize:44,marginBottom:16}}>⛳</div>
-            <div style={{fontFamily:"'Cinzel',serif",fontSize:22,fontWeight:700,color:C.cream,marginBottom:8}}>Join Down To Golf</div>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:22,fontWeight:700,color:C.cream,marginBottom:8}}>Down To Golf</div>
             <div style={{fontSize:14,color:C.creamMuted,marginBottom:28,lineHeight:1.6}}>Create your free account to join rounds, post tee times, and connect with golfers near you.</div>
             <button className="bh" onClick={onSignUp} style={{width:"100%",background:`linear-gradient(135deg,${C.gold},${C.goldDim})`,border:"none",borderRadius:12,color:"#0a1a0c",padding:"15px",fontSize:15,fontWeight:700,cursor:"pointer",letterSpacing:1,fontFamily:"'Cinzel',sans-serif",marginBottom:12}}>CREATE FREE ACCOUNT</button>
             <button className="bh" onClick={onSignUp} style={{width:"100%",background:"none",border:"1px solid rgba(42,107,52,.3)",borderRadius:12,color:C.creamMuted,padding:"13px",fontSize:13,cursor:"pointer"}}>Already have an account? Sign In</button>
@@ -900,8 +900,8 @@ function GuestFeedScreen({onSignUp}){
       <div style={{position:"sticky",top:0,zIndex:100,background:"#0a1a0c",borderBottom:"1px solid rgba(42,107,52,.2)"}}>
         <div style={{maxWidth:520,margin:"0 auto",padding:"14px 16px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
           <div>
-            <div style={{fontFamily:"'Cinzel',serif",fontSize:20,fontWeight:700,letterSpacing:2,color:C.cream}}>Down To Golf</div>
-            <div style={{fontSize:10,color:C.creamMuted,letterSpacing:2}}>Find golfers near you</div>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:20,fontWeight:700,letterSpacing:2,color:C.cream}}>Are You Down To Golf?</div>
+            <div style={{fontSize:10,color:C.creamMuted,letterSpacing:2}}>dt.golf</div>
           </div>
           <button className="bh" onClick={onSignUp} style={{background:`linear-gradient(135deg,${C.gold},${C.goldDim})`,border:"none",borderRadius:10,color:"#0a1a0c",padding:"9px 16px",fontSize:13,fontWeight:700,cursor:"pointer"}}>Join Free</button>
         </div>
@@ -914,7 +914,7 @@ function GuestFeedScreen({onSignUp}){
           <div style={{textAlign:"center",padding:"80px 24px",color:C.creamMuted}}>
             <div style={{fontSize:52,marginBottom:16}}>⛳</div>
             <div style={{fontFamily:"'Cinzel',serif",fontSize:18,color:C.creamDim,marginBottom:8}}>Rounds posting soon</div>
-            <div style={{fontSize:13,marginBottom:24}}>Be the first golfer in your area on Down To Golf</div>
+            <div style={{fontSize:13,marginBottom:24}}>Be the first golfer in your area</div>
             <button className="bh" onClick={onSignUp} style={{background:`linear-gradient(135deg,${C.gold},${C.goldDim})`,border:"none",borderRadius:12,color:"#0a1a0c",padding:"14px 28px",fontSize:14,fontWeight:700,cursor:"pointer"}}>Create Free Account</button>
           </div>
         )}
@@ -942,7 +942,7 @@ function GuestFeedScreen({onSignUp}){
                 </button>
               )}
               {post.type==="regular"&&(
-                <button onClick={()=>setShowWall(true)} style={{background:"none",border:"none",color:C.creamMuted,fontSize:13,cursor:"pointer",padding:0}}>🔥 React or comment — Join Down To Golf</button>
+                <button onClick={()=>setShowWall(true)} style={{background:"none",border:"none",color:C.creamMuted,fontSize:13,cursor:"pointer",padding:0}}>🔥 React or comment — Down To Golf</button>
               )}
             </div>
           </div>
@@ -952,7 +952,7 @@ function GuestFeedScreen({onSignUp}){
           <div style={{margin:"20px 16px 40px",background:"linear-gradient(135deg,rgba(26,77,36,.3),rgba(201,162,39,.08))",border:"1px solid rgba(201,162,39,.2)",borderRadius:16,padding:"24px",textAlign:"center"}}>
             <div style={{fontSize:28,marginBottom:10}}>⛳</div>
             <div style={{fontFamily:"'Cinzel',serif",fontSize:16,fontWeight:700,color:C.cream,marginBottom:6}}>Ready to play?</div>
-            <div style={{fontSize:13,color:C.creamMuted,marginBottom:16}}>Create your free Down To Golf account and join a round today.</div>
+            <div style={{fontSize:13,color:C.creamMuted,marginBottom:16}}>Create your free account and join a round today.</div>
             <button className="bh" onClick={onSignUp} style={{background:`linear-gradient(135deg,${C.gold},${C.goldDim})`,border:"none",borderRadius:12,color:"#0a1a0c",padding:"13px 28px",fontSize:14,fontWeight:700,cursor:"pointer"}}>Create Free Account</button>
           </div>
         )}
