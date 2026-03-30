@@ -197,7 +197,7 @@ function CreateRoundPostModal({currentUser, onPost, onClose}){
   const [course,      setCourse]      = useState("");
   const [date,        setDate]        = useState(new Date().toISOString().split("T")[0]);
   const [time,        setTime]        = useState("08:00");
-  const [totalSpots,  setTotalSpots]  = useState("4");
+  const [totalSpots,  setTotalSpots]  = useState("2");
   const [posting,     setPosting]     = useState(false);
   const [errors,      setErrors]      = useState({});
   const fileRef = useRef(null);
@@ -237,7 +237,7 @@ function CreateRoundPostModal({currentUser, onPost, onClose}){
         course:course.trim(),
         date,
         time,
-        totalSpots:spots,
+        totalSpots:spots+1,
         players:[{uid:currentUser.uid,displayName:currentUser.displayName||currentUser.email,joinedAt:new Date().toISOString()}],
         reactions:{},
         comments:[],
@@ -321,9 +321,9 @@ function CreateRoundPostModal({currentUser, onPost, onClose}){
                 <input type="time" value={time} onChange={e=>setTime(e.target.value)} style={{...iStyle(errors.time),colorScheme:"dark"}}/>
               </Field>
             </div>
-            <Field label="Spots Needed (including you)" error={errors.spots}>
+            <Field label="Spots Needed (not including you)" error={errors.spots}>
               <div style={{display:"flex",gap:10}}>
-                {[2,3,4].map(n=>(
+                {[1,2,3].map(n=>(
                   <button key={n} onClick={()=>setTotalSpots(String(n))} style={{flex:1,padding:"12px",borderRadius:10,cursor:"pointer",fontSize:14,fontWeight:700,transition:"all .2s",background:totalSpots===String(n)?`linear-gradient(135deg,${C.green},${C.greenLight})`:"rgba(5,14,6,.7)",border:totalSpots===String(n)?"1px solid rgba(77,184,96,.4)":"1px solid rgba(42,107,52,.3)",color:totalSpots===String(n)?C.cream:C.creamMuted}}>
                     {n} 🏌️
                   </button>
@@ -331,7 +331,7 @@ function CreateRoundPostModal({currentUser, onPost, onClose}){
               </div>
             </Field>
             <div style={{background:"rgba(5,14,6,.5)",border:"1px solid rgba(42,107,52,.2)",borderRadius:10,padding:"10px 14px",fontSize:12,color:C.creamMuted}}>
-              You + <strong style={{color:C.creamDim}}>{(parseInt(totalSpots)||4)-1} more</strong> needed · Anyone on DTG can join
+              You + <strong style={{color:C.creamDim}}>{parseInt(totalSpots)||1} more</strong> needed · Anyone on DTG can join
             </div>
           </div>
         )}
@@ -374,6 +374,19 @@ function MatchPostCard({post, currentUser, onJoin, onLeave, onDelete, isOwner}){
 
   return(
     <div style={{background:"#0a1a0c",borderRadius:0,marginBottom:2,overflow:"hidden",borderTop:"1px solid rgba(42,107,52,.1)"}}>
+      {confirmDel&&(
+        <div style={{position:"fixed",inset:0,zIndex:400,background:"rgba(0,0,0,.85)",backdropFilter:"blur(6px)",display:"flex",alignItems:"flex-end",justifyContent:"center",padding:"0 0 40px"}}>
+          <div style={{background:"#1a3a1e",border:"1px solid rgba(42,107,52,.3)",borderRadius:20,padding:"28px 24px",width:"100%",maxWidth:420,margin:"0 16px",textAlign:"center"}}>
+            <div style={{fontSize:28,marginBottom:12}}>🗑</div>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:16,fontWeight:700,color:C.cream,marginBottom:8}}>Delete Post?</div>
+            <div style={{fontSize:13,color:C.creamMuted,marginBottom:24}}>This can't be undone.</div>
+            <div style={{display:"flex",gap:12}}>
+              <button onClick={()=>setConfirmDel(false)} style={{flex:1,background:"rgba(255,255,255,.06)",border:"none",borderRadius:12,color:C.creamMuted,padding:"14px",fontSize:14,cursor:"pointer",fontWeight:600}}>Cancel</button>
+              <button onClick={()=>{onDelete(post.id);setConfirmDel(false);}} style={{flex:1,background:"rgba(192,64,64,.3)",border:"1px solid rgba(192,64,64,.4)",borderRadius:12,color:"#e08080",padding:"14px",fontSize:14,cursor:"pointer",fontWeight:700}}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Author row */}
       <div style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px 8px"}}>
         <Avatar name={post.authorName} photo={post.authorPhoto||null} size={36} radius={18}/>
@@ -382,24 +395,7 @@ function MatchPostCard({post, currentUser, onJoin, onLeave, onDelete, isOwner}){
           <div style={{fontSize:11,color:C.creamMuted}}>{formatAgo(post.createdAt)}</div>
         </div>
         {isOwner&&!isExpired&&(
-          <div style={{position:"relative"}}>
-            <button onClick={()=>setShowMenu(v=>!v)} style={{background:"none",border:"none",color:C.creamMuted,fontSize:18,cursor:"pointer",padding:"4px 8px"}}>⋯</button>
-            {showMenu&&(
-              <div style={{position:"absolute",right:0,top:"100%",background:"#1a3a1e",border:"1px solid rgba(42,107,52,.4)",borderRadius:10,padding:"6px",zIndex:50,minWidth:140,boxShadow:"0 8px 24px rgba(0,0,0,.5)"}}>
-                {!confirmDel?(
-                  <button onClick={()=>setConfirmDel(true)} style={{display:"block",width:"100%",background:"none",border:"none",color:"#e07070",padding:"10px 14px",fontSize:13,cursor:"pointer",textAlign:"left",borderRadius:7}}>🗑 Delete Post</button>
-                ):(
-                  <div style={{padding:"8px 10px"}}>
-                    <div style={{fontSize:12,color:C.creamDim,marginBottom:8}}>Delete this post?</div>
-                    <div style={{display:"flex",gap:6}}>
-                      <button onClick={()=>{setShowMenu(false);setConfirmDel(false);}} style={{flex:1,background:"rgba(255,255,255,.05)",border:"none",borderRadius:7,color:C.creamMuted,padding:"7px",fontSize:12,cursor:"pointer"}}>Cancel</button>
-                      <button onClick={()=>{onDelete(post.id);setShowMenu(false);setConfirmDel(false);}} style={{flex:1,background:"rgba(192,64,64,.3)",border:"none",borderRadius:7,color:"#e08080",padding:"7px",fontSize:12,cursor:"pointer",fontWeight:600}}>Delete</button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+          <button onClick={()=>setConfirmDel(true)} style={{background:"none",border:"none",color:C.creamMuted,fontSize:18,cursor:"pointer",padding:"4px 8px"}}>⋯</button>
         )}
       </div>
 
