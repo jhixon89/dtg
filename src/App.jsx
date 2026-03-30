@@ -520,6 +520,216 @@ function MatchPostCard({post, currentUser, onJoin, onLeave, onDelete, isOwner}){
   );
 }
 
+// ─── FEATURED PHOTO UPLOADER ─────────────────────────────────────────────────
+function FeaturedPhotoUploader({photos, onChange}){
+  const fileRef=useRef(null);
+
+  async function handleFile(e){
+    const files=Array.from(e.target.files);
+    const resized=await Promise.all(files.map(f=>resizeImage(f,900,0.82)));
+    onChange([...(photos||[]),...resized]);
+    e.target.value="";
+  }
+
+  function removePhoto(i){onChange((photos||[]).filter((_,pi)=>pi!==i));}
+
+  return(
+    <div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:12}}>
+        {(photos||[]).map((p,i)=>(
+          <div key={i} style={{position:"relative",width:80,height:80}}>
+            <img src={p} alt="" style={{width:80,height:80,objectFit:"cover",borderRadius:10,display:"block"}}/>
+            <button onClick={()=>removePhoto(i)} style={{position:"absolute",top:-6,right:-6,width:20,height:20,borderRadius:"50%",background:"rgba(192,64,64,.9)",border:"none",color:"white",fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+          </div>
+        ))}
+        <button onClick={()=>fileRef.current?.click()} style={{width:80,height:80,borderRadius:10,background:"rgba(5,14,6,.7)",border:"1px dashed rgba(42,107,52,.4)",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4,color:C.creamMuted,fontSize:11}}>
+          <span style={{fontSize:20}}>+</span>
+          <span>Photo</span>
+        </button>
+      </div>
+      <input ref={fileRef} type="file" accept="image/*" multiple style={{display:"none"}} onChange={handleFile}/>
+      <div style={{fontSize:11,color:C.creamMuted}}>Tap + to add photos. You can add multiple at once.</div>
+    </div>
+  );
+}
+
+// ─── COURSE PROFILE VIEW ──────────────────────────────────────────────────────
+function CourseProfile({course, currentUser, onBack, onAddCommunityPhoto}){
+  const [activeTab,   setActiveTab]   = useState("photos");
+  const [imgFull,     setImgFull]     = useState(null);
+  const [uploading,   setUploading]   = useState(false);
+  const fileRef=useRef(null);
+
+  const allPhotos=[...(course.featuredPhotos||[]),...(course.communityPhotos||[]).map(p=>p.photo)];
+  const totalPar=(course.pars||[]).reduce((s,p)=>s+(+p||0),0);
+
+  async function handleUserPhoto(e){
+    const f=e.target.files[0];if(!f)return;
+    setUploading(true);
+    const photo=await resizeImage(f,900,0.82);
+    await onAddCommunityPhoto(course.id,{uid:currentUser.uid,displayName:currentUser.displayName||"",photo,addedAt:new Date().toISOString()});
+    setUploading(false);
+    e.target.value="";
+  }
+
+  return(
+    <div style={{minHeight:"100vh",background:"#0a1a0c",fontFamily:"'DM Sans',sans-serif",color:C.cream}}>
+      <style>{css}</style>
+
+      {imgFull&&(
+        <div onClick={()=>setImgFull(null)} style={{position:"fixed",inset:0,zIndex:500,background:"rgba(0,0,0,.95)",display:"flex",alignItems:"center",justifyContent:"center",padding:16,cursor:"pointer"}}>
+          <img src={imgFull} alt="full" style={{maxWidth:"100%",maxHeight:"90vh",objectFit:"contain",borderRadius:8}}/>
+        </div>
+      )}
+
+      {/* Hero photo */}
+      {allPhotos.length>0?(
+        <div style={{position:"relative",width:"100%",height:220,overflow:"hidden"}}>
+          <img src={allPhotos[0]} alt={course.name} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+          <div style={{position:"absolute",inset:0,background:"linear-gradient(to bottom,transparent 40%,rgba(0,0,0,.8))"}}/>
+          <div style={{position:"absolute",bottom:16,left:16,right:16}}>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:20,fontWeight:700,color:"white"}}>{course.name}</div>
+            <div style={{fontSize:12,color:"rgba(255,255,255,.7)",marginTop:2}}>{course.city}, {course.state} · {course.holes} holes</div>
+          </div>
+          <button onClick={onBack} style={{position:"absolute",top:16,left:16,background:"rgba(0,0,0,.5)",border:"none",borderRadius:20,color:"white",padding:"6px 12px",fontSize:12,cursor:"pointer"}}>← Back</button>
+        </div>
+      ):(
+        <div style={{background:"rgba(13,32,16,.9)",padding:"20px 16px"}}>
+          <button onClick={onBack} style={{background:"none",border:"none",color:C.creamMuted,fontSize:12,cursor:"pointer",marginBottom:12}}>← Back</button>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:20,fontWeight:700,color:C.cream}}>{course.name}</div>
+          <div style={{fontSize:12,color:C.creamMuted,marginTop:2}}>{course.city}, {course.state} · {course.holes} holes</div>
+        </div>
+      )}
+
+      <div style={{maxWidth:640,margin:"0 auto",padding:"16px"}}>
+        {/* Signature hole */}
+        {course.signatureHole&&(
+          <div style={{background:"linear-gradient(135deg,rgba(201,162,39,.1),rgba(26,77,36,.15))",border:"1px solid rgba(201,162,39,.25)",borderRadius:14,padding:"14px 16px",marginBottom:16,display:"flex",gap:12,alignItems:"flex-start"}}>
+            <span style={{fontSize:24,flexShrink:0}}>⭐</span>
+            <div>
+              <div style={{fontFamily:"'Cinzel',serif",fontSize:13,fontWeight:700,color:C.goldLight,marginBottom:3}}>Signature Hole — #{course.signatureHole}</div>
+              <div style={{fontSize:13,color:C.creamDim,lineHeight:1.6}}>{course.signatureHoleNote}</div>
+            </div>
+          </div>
+        )}
+
+        {/* Practice facility */}
+        {course.practiceRange&&(
+          <div style={{background:"rgba(13,32,16,.8)",border:"1px solid rgba(42,107,52,.2)",borderRadius:14,padding:"14px 16px",marginBottom:16}}>
+            <div style={{fontWeight:600,fontSize:13,color:C.cream,marginBottom:course.practiceNotes?6:0}}>🏌️ Practice Facility Available</div>
+            {course.practiceNotes&&<div style={{fontSize:12,color:C.creamMuted,lineHeight:1.6}}>{course.practiceNotes}</div>}
+          </div>
+        )}
+
+        {/* Tabs */}
+        <div style={{display:"flex",borderBottom:"1px solid rgba(42,107,52,.2)",marginBottom:20}}>
+          {["photos","scorecard"].map(t=>(
+            <button key={t} onClick={()=>setActiveTab(t)} style={{padding:"10px 16px",background:"none",border:"none",cursor:"pointer",fontSize:13,fontWeight:600,color:activeTab===t?C.goldLight:C.creamMuted,borderBottom:activeTab===t?`2px solid ${C.gold}`:"2px solid transparent",textTransform:"capitalize"}}>
+              {t==="photos"?"📸 Photos":`📋 Scorecard`}
+            </button>
+          ))}
+        </div>
+
+        {/* PHOTOS TAB */}
+        {activeTab==="photos"&&(
+          <div>
+            {/* Add photo button */}
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+              <div style={{fontSize:12,color:C.creamMuted}}>{allPhotos.length} photo{allPhotos.length!==1?"s":""}</div>
+              <button className="bh" onClick={()=>fileRef.current?.click()} disabled={uploading} style={{background:`linear-gradient(135deg,${C.green},${C.greenLight})`,border:"none",borderRadius:9,color:C.cream,padding:"8px 14px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+                {uploading?<><Spinner/>Uploading…</>:"📷 Add Your Photo"}
+              </button>
+              <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleUserPhoto}/>
+            </div>
+
+            {allPhotos.length===0&&(
+              <div style={{textAlign:"center",padding:"40px 20px",color:C.creamMuted}}>
+                <div style={{fontSize:36,marginBottom:10}}>📸</div>
+                <div style={{fontSize:14,marginBottom:6}}>No photos yet</div>
+                <div style={{fontSize:12}}>Be the first to add a photo from your round here</div>
+              </div>
+            )}
+
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              {(course.featuredPhotos||[]).map((p,i)=>(
+                <div key={"f"+i} style={{position:"relative"}}>
+                  <img src={p} alt="" onClick={()=>setImgFull(p)} style={{width:"100%",aspectRatio:"4/3",objectFit:"cover",borderRadius:10,cursor:"pointer",display:"block"}}/>
+                  <div style={{position:"absolute",top:6,left:6,background:"rgba(201,162,39,.8)",borderRadius:4,padding:"2px 6px",fontSize:9,fontWeight:700,color:"#0a1a0c"}}>FEATURED</div>
+                </div>
+              ))}
+              {(course.communityPhotos||[]).map((p,i)=>(
+                <div key={"c"+i} style={{position:"relative"}}>
+                  <img src={p.photo} alt="" onClick={()=>setImgFull(p.photo)} style={{width:"100%",aspectRatio:"4/3",objectFit:"cover",borderRadius:10,cursor:"pointer",display:"block"}}/>
+                  <div style={{position:"absolute",bottom:6,left:6,fontSize:10,color:"white",background:"rgba(0,0,0,.5)",borderRadius:4,padding:"2px 6px"}}>{p.displayName?.split(" ")[0]}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* SCORECARD TAB */}
+        {activeTab==="scorecard"&&(
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:360}}>
+              <thead>
+                <tr style={{background:"rgba(13,32,16,.8)"}}>
+                  <th style={{padding:"8px",color:C.creamMuted,textAlign:"center",fontWeight:600}}>Hole</th>
+                  <th style={{padding:"8px",color:C.creamMuted,textAlign:"center",fontWeight:600}}>Par</th>
+                  <th style={{padding:"8px",color:C.creamMuted,textAlign:"center",fontWeight:600}}>HCP</th>
+                  {(course.tees||[]).map((t,ti)=>(
+                    <th key={ti} style={{padding:"8px",textAlign:"center",fontWeight:600}}>
+                      <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
+                        <div style={{width:10,height:10,borderRadius:"50%",background:t.color,border:"1px solid rgba(255,255,255,.2)"}}/>
+                        <span style={{color:C.creamMuted}}>{t.name}</span>
+                      </div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {Array.from({length:course.holes||18},(_,i)=>(
+                  <tr key={i} style={{borderTop:"1px solid rgba(42,107,52,.1)",background:i%2===0?"transparent":"rgba(13,32,16,.3)"}}>
+                    <td style={{padding:"7px 8px",textAlign:"center",fontFamily:"'Cinzel',serif",fontWeight:700,color:C.goldLight}}>{i+1}</td>
+                    <td style={{padding:"7px 8px",textAlign:"center",color:C.creamDim,fontWeight:600}}>{course.pars?.[i]||4}</td>
+                    <td style={{padding:"7px 8px",textAlign:"center",color:C.creamMuted}}>{course.handicaps?.[i]||"—"}</td>
+                    {(course.tees||[]).map((t,ti)=>(
+                      <td key={ti} style={{padding:"7px 8px",textAlign:"center",color:C.creamDim}}>{t.yardages?.[i]||"—"}</td>
+                    ))}
+                  </tr>
+                ))}
+                {/* Totals */}
+                <tr style={{borderTop:"2px solid rgba(42,107,52,.3)",background:"rgba(13,32,16,.8)"}}>
+                  <td style={{padding:"8px",textAlign:"center",color:C.creamMuted,fontSize:10,letterSpacing:1}}>TOTAL</td>
+                  <td style={{padding:"8px",textAlign:"center",fontFamily:"'Cinzel',serif",fontWeight:700,color:C.goldLight}}>{totalPar}</td>
+                  <td/>
+                  {(course.tees||[]).map((t,ti)=>(
+                    <td key={ti} style={{padding:"8px",textAlign:"center",fontFamily:"'Cinzel',serif",fontWeight:700,color:C.goldLight}}>
+                      {(t.yardages||[]).reduce((s,y)=>s+(+y||0),0)||"—"}
+                    </td>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
+
+            {/* Ratings per tee */}
+            <div style={{marginTop:16,display:"flex",gap:10,flexWrap:"wrap"}}>
+              {(course.tees||[]).filter(t=>t.rating||t.slope).map((t,ti)=>(
+                <div key={ti} style={{background:"rgba(13,32,16,.8)",border:"1px solid rgba(42,107,52,.2)",borderRadius:10,padding:"10px 14px",display:"flex",alignItems:"center",gap:8}}>
+                  <div style={{width:12,height:12,borderRadius:"50%",background:t.color,border:"1px solid rgba(255,255,255,.2)"}}/>
+                  <div>
+                    <div style={{fontSize:11,color:C.creamMuted}}>{t.name} Tees</div>
+                    <div style={{fontSize:12,color:C.cream,fontWeight:600}}>Rating {t.rating} · Slope {t.slope}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── DTG ADMIN PANEL ─────────────────────────────────────────────────────────
 function DtgAdminPanel({courses, onSaveCourses, onClose}){
   const [view,        setView]        = useState("list"); // list | add | edit | holes
@@ -528,7 +738,7 @@ function DtgAdminPanel({courses, onSaveCourses, onClose}){
   const [saving,      setSaving]      = useState(false);
 
   // Course form
-  const emptyCourse=()=>({id:"c_"+Date.now(),name:"",city:"",state:"FL",holes:18,tees:[{name:"Blue",color:"#1a4dcc",rating:"",slope:"",yardages:Array(18).fill("")},{name:"White",color:"#e8e8e8",rating:"",slope:"",yardages:Array(18).fill("")},{name:"Red",color:"#cc1a1a",rating:"",slope:"",yardages:Array(18).fill("")}],pars:Array(18).fill("4"),handicaps:Array(18).fill(""),createdAt:new Date().toISOString()});
+  const emptyCourse=()=>({id:"c_"+Date.now(),name:"",city:"",state:"FL",holes:18,tees:[{name:"Blue",color:"#1a4dcc",rating:"",slope:"",yardages:Array(18).fill("")},{name:"White",color:"#e8e8e8",rating:"",slope:"",yardages:Array(18).fill("")},{name:"Red",color:"#cc1a1a",rating:"",slope:"",yardages:Array(18).fill("")}],pars:Array(18).fill("4"),handicaps:Array(18).fill(""),practiceRange:false,practiceNotes:"",signatureHole:"",signatureHoleNote:"",featuredPhotos:[],communityPhotos:[],createdAt:new Date().toISOString()});
   const [form, setForm] = useState(emptyCourse());
 
   function startAdd(){setForm(emptyCourse());setView("add");}
@@ -665,6 +875,49 @@ function DtgAdminPanel({courses, onSaveCourses, onClose}){
               </div>
             </div>
 
+            {/* Practice Facility */}
+            <div style={{background:"rgba(13,32,16,.85)",border:"1px solid rgba(42,107,52,.25)",borderRadius:16,padding:"20px",marginBottom:16,display:"flex",flexDirection:"column",gap:14}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                <div>
+                  <div style={{fontWeight:600,fontSize:14,color:C.cream}}>🏌️ Practice Facility / Driving Range</div>
+                  <div style={{fontSize:12,color:C.creamMuted,marginTop:2}}>Does this course have a range or practice area?</div>
+                </div>
+                <button onClick={()=>setForm(f=>({...f,practiceRange:!f.practiceRange}))} style={{width:44,height:26,borderRadius:13,border:"none",cursor:"pointer",background:form.practiceRange?C.greenBright:"rgba(255,255,255,.1)",transition:"all .2s",position:"relative",flexShrink:0}}>
+                  <div style={{width:20,height:20,borderRadius:10,background:"white",position:"absolute",top:3,transition:"all .2s",left:form.practiceRange?20:3}}/>
+                </button>
+              </div>
+              {form.practiceRange&&(
+                <Field label="Practice Notes (optional)">
+                  <textarea value={form.practiceNotes||""} onChange={e=>setForm(f=>({...f,practiceNotes:e.target.value}))} placeholder="e.g. Full range, chipping green, putting green. Balls: $8/bucket" rows={2} style={{...iStyle(false),resize:"none",fontFamily:"'DM Sans',sans-serif"}}/>
+                </Field>
+              )}
+            </div>
+
+            {/* Signature Hole */}
+            <div style={{background:"rgba(13,32,16,.85)",border:"1px solid rgba(42,107,52,.25)",borderRadius:16,padding:"20px",marginBottom:16,display:"flex",flexDirection:"column",gap:14}}>
+              <div style={{fontSize:10,color:C.creamMuted,letterSpacing:2,textTransform:"uppercase",marginBottom:4}}>⭐ Signature Hole</div>
+              <div style={{display:"grid",gridTemplateColumns:"100px 1fr",gap:12}}>
+                <Field label="Hole #">
+                  <select value={form.signatureHole||""} onChange={e=>setForm(f=>({...f,signatureHole:e.target.value}))} style={{...iStyle(false),appearance:"none",cursor:"pointer"}}>
+                    <option value="">—</option>
+                    {Array.from({length:numHoles},(_,i)=><option key={i+1} value={i+1}>{i+1}</option>)}
+                  </select>
+                </Field>
+                <Field label="Why it's memorable">
+                  <input value={form.signatureHoleNote||""} onChange={e=>setForm(f=>({...f,signatureHoleNote:e.target.value}))} placeholder='e.g. Island green, 185 yards, no room for error' style={iStyle(false)}/>
+                </Field>
+              </div>
+            </div>
+
+            {/* Featured Photos */}
+            <div style={{background:"rgba(13,32,16,.85)",border:"1px solid rgba(42,107,52,.25)",borderRadius:16,padding:"20px",marginBottom:16}}>
+              <div style={{fontSize:10,color:C.creamMuted,letterSpacing:2,textTransform:"uppercase",marginBottom:14}}>📸 Featured Photos (Admin)</div>
+              <FeaturedPhotoUploader
+                photos={form.featuredPhotos||[]}
+                onChange={photos=>setForm(f=>({...f,featuredPhotos:photos}))}
+              />
+            </div>
+
             <button className="bh" onClick={saveCourse} disabled={!form.name.trim()||saving} style={{width:"100%",background:form.name.trim()?`linear-gradient(135deg,${C.gold},${C.goldDim})`:"rgba(60,60,60,.3)",border:"none",borderRadius:12,color:form.name.trim()?"#0a1a0c":C.creamMuted,padding:"14px",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"'Cinzel',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>{saving?<><Spinner/>Saving…</>:view==="add"?"ADD COURSE ⛳":"SAVE CHANGES"}</button>
           </div>
         )}
@@ -737,6 +990,7 @@ function HomeScreen({currentUser, onSelectGroup}){
   const [showProfile,   setShowProfile]   = useState(false);
   const [showCaddy,     setShowCaddy]     = useState(false);
   const [showDtgAdmin,  setShowDtgAdmin]  = useState(false);
+  const [viewCourse,    setViewCourse]    = useState(null);
   const [myProfile,     setMyProfile]     = useState({});
   const [myBag,         setMyBag]         = useState({});
   const [courses,       setCourses]       = useState([]);
@@ -745,6 +999,16 @@ function HomeScreen({currentUser, onSelectGroup}){
   const [working,       setWorking]       = useState(false);
   const [error,         setError]         = useState("");
   const isDtgAdmin = currentUser.uid === DTG_ADMIN_UID;
+
+  async function saveCourses(list){await setDoc(doc(db,"dtg_data","courses"),{list});}
+
+  async function addCommunityPhoto(courseId, photoObj){
+    const updated=courses.map(c=>{
+      if(c.id!==courseId)return c;
+      return{...c,communityPhotos:[...(c.communityPhotos||[]),photoObj]};
+    });
+    await saveCourses(updated);
+  }
 
   // Load global feed
   useEffect(()=>{
@@ -941,13 +1205,13 @@ function HomeScreen({currentUser, onSelectGroup}){
 
         {/* Tabs */}
         <div style={{maxWidth:520,margin:"0 auto",display:"flex",borderTop:"1px solid rgba(42,107,52,.15)"}}>
-          {[{id:"feed",label:"⛳ Feed"},{id:"groups",label:"👥 My Groups"}].map(t=>(
-            <button key={t.id} onClick={()=>setTab(t.id)} style={{flex:1,padding:"12px",background:"none",border:"none",cursor:"pointer",fontSize:13,fontWeight:600,color:tab===t.id?C.goldLight:C.creamMuted,borderBottom:tab===t.id?`2px solid ${C.gold}`:"2px solid transparent",transition:"all .15s"}}>
+          {[{id:"feed",label:"⛳ Feed"},{id:"courses",label:"🗺 Courses"},{id:"groups",label:"👥 Groups"}].map(t=>(
+            <button key={t.id} onClick={()=>setTab(t.id)} style={{flex:1,padding:"12px",background:"none",border:"none",cursor:"pointer",fontSize:12,fontWeight:600,color:tab===t.id?C.goldLight:C.creamMuted,borderBottom:tab===t.id?`2px solid ${C.gold}`:"2px solid transparent",transition:"all .15s"}}>
               {t.label}
             </button>
           ))}
-          {isDtgAdmin&&<button onClick={()=>setShowDtgAdmin(true)} style={{padding:"12px 14px",background:"none",border:"none",cursor:"pointer",fontSize:11,color:C.gold,borderBottom:"2px solid transparent",fontWeight:600}}>⚙️ Admin</button>}
-          <button onClick={()=>signOut(auth)} style={{padding:"12px 14px",background:"none",border:"none",cursor:"pointer",fontSize:11,color:C.creamMuted,borderBottom:"2px solid transparent"}}>Sign Out</button>
+          {isDtgAdmin&&<button onClick={()=>setShowDtgAdmin(true)} style={{padding:"12px 12px",background:"none",border:"none",cursor:"pointer",fontSize:11,color:C.gold,borderBottom:"2px solid transparent",fontWeight:600}}>⚙️</button>}
+          <button onClick={()=>signOut(auth)} style={{padding:"12px 10px",background:"none",border:"none",cursor:"pointer",fontSize:11,color:C.creamMuted,borderBottom:"2px solid transparent"}}>Out</button>
         </div>
       </div>
 
@@ -976,6 +1240,43 @@ function HomeScreen({currentUser, onSelectGroup}){
               isOwner={post.authorUid===currentUser.uid}
             />
           ))}
+        </div>
+      )}
+
+      {/* COURSES TAB */}
+      {tab==="courses"&&(
+        <div style={{maxWidth:520,margin:"0 auto",padding:"16px"}}>
+          <div style={{fontSize:12,color:C.creamMuted,marginBottom:16}}>Tap a course to see photos, scorecard, and details</div>
+          {courses.length===0&&(
+            <div style={{textAlign:"center",padding:"60px 20px",color:C.creamMuted}}>
+              <div style={{fontSize:36,marginBottom:10}}>🗺</div>
+              <div style={{fontSize:14,color:C.creamDim,marginBottom:4}}>No courses yet</div>
+              <div style={{fontSize:12}}>Courses will appear here once the admin adds them</div>
+            </div>
+          )}
+          {courses.map(c=>{
+            const heroPhoto=(c.featuredPhotos||[])[0]||(c.communityPhotos||[])[0]?.photo||null;
+            const totalPhotos=(c.featuredPhotos||[]).length+(c.communityPhotos||[]).length;
+            return(
+              <div key={c.id} className="rh" onClick={()=>setViewCourse(c.id)} style={{background:"rgba(13,32,16,.8)",border:"1px solid rgba(42,107,52,.2)",borderRadius:16,marginBottom:10,cursor:"pointer",overflow:"hidden"}}>
+                {heroPhoto?(
+                  <img src={heroPhoto} alt={c.name} style={{width:"100%",height:140,objectFit:"cover",display:"block"}}/>
+                ):(
+                  <div style={{width:"100%",height:80,background:"rgba(26,77,36,.2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:28}}>⛳</div>
+                )}
+                <div style={{padding:"14px 16px"}}>
+                  <div style={{fontFamily:"'Cinzel',serif",fontSize:15,fontWeight:700,color:C.cream}}>{c.name}</div>
+                  <div style={{fontSize:12,color:C.creamMuted,marginTop:3,display:"flex",gap:12,flexWrap:"wrap"}}>
+                    <span>📍 {c.city}, {c.state}</span>
+                    <span>⛳ {c.holes} holes</span>
+                    {c.practiceRange&&<span>🏌️ Range</span>}
+                    {c.signatureHole&&<span>⭐ Hole #{c.signatureHole}</span>}
+                    {totalPhotos>0&&<span>📸 {totalPhotos} photo{totalPhotos!==1?"s":""}</span>}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -1038,11 +1339,21 @@ function HomeScreen({currentUser, onSelectGroup}){
         </div>
       )}
 
+      {/* COURSE PROFILE */}
+      {viewCourse&&(
+        <CourseProfile
+          course={courses.find(c=>c.id===viewCourse)||{}}
+          currentUser={currentUser}
+          onBack={()=>setViewCourse(null)}
+          onAddCommunityPhoto={addCommunityPhoto}
+        />
+      )}
+
       {/* DTG ADMIN MODAL */}
       {showDtgAdmin&&isDtgAdmin&&(
         <DtgAdminPanel
           courses={courses}
-          onSaveCourses={async(list)=>{await setDoc(doc(db,"dtg_data","courses"),{list});}}
+          onSaveCourses={saveCourses}
           onClose={()=>setShowDtgAdmin(false)}
         />
       )}
