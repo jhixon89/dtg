@@ -2966,8 +2966,22 @@ function GameView({members, games, saveGames, currentUser}){
 
 // ─── INVITE FRIENDS MODAL ────────────────────────────────────────────────────
 function InviteFriendsModal({currentUser, groupId, groupName, myFollowing, allProfiles, existingMembers, onInvite, onClose}){
-  const [sent,    setSent]    = useState({});
-  const [search,  setSearch]  = useState("");
+  const [search,       setSearch]       = useState("");
+  const [pendingInvites,setPendingInvites]=useState(new Set());
+
+  // Load existing pending invites from Firebase on mount
+  useEffect(()=>{
+    async function loadPending(){
+      const pending=new Set();
+      await Promise.all(myFollowing.map(async uid=>{
+        const inviteId=currentUser.uid+"_"+uid+"_"+groupId;
+        const snap=await getDoc(doc(db,"groupInvites",inviteId));
+        if(snap.exists()&&snap.data().status==="pending") pending.add(uid);
+      }));
+      setPendingInvites(pending);
+    }
+    loadPending();
+  },[groupId]);
 
   const friends=myFollowing
     .filter(uid=>!existingMembers.includes(uid))
@@ -2976,7 +2990,7 @@ function InviteFriendsModal({currentUser, groupId, groupName, myFollowing, allPr
 
   async function handleInvite(uid,name){
     await onInvite(uid,name);
-    setSent(s=>({...s,[uid]:true}));
+    setPendingInvites(p=>new Set([...p,uid]));
   }
 
   return(
@@ -3015,10 +3029,10 @@ function InviteFriendsModal({currentUser, groupId, groupName, myFollowing, allPr
               <button
                 className="bh"
                 onClick={()=>handleInvite(f.uid,f.displayName)}
-                disabled={sent[f.uid]}
-                style={{background:sent[f.uid]?"rgba(42,107,52,.2)":`linear-gradient(135deg,${C.gold},${C.goldDim})`,border:sent[f.uid]?"1px solid rgba(77,184,96,.3)":"none",borderRadius:10,color:sent[f.uid]?C.greenBright:"#0a1a0c",padding:"9px 16px",fontSize:12,fontWeight:700,cursor:sent[f.uid]?"default":"pointer",whiteSpace:"nowrap"}}
+                disabled={pendingInvites.has(f.uid)}
+                style={{background:pendingInvites.has(f.uid)?"rgba(42,107,52,.2)":`linear-gradient(135deg,${C.gold},${C.goldDim})`,border:pendingInvites.has(f.uid)?"1px solid rgba(77,184,96,.3)":"none",borderRadius:10,color:pendingInvites.has(f.uid)?C.greenBright:"#0a1a0c",padding:"9px 16px",fontSize:12,fontWeight:700,cursor:pendingInvites.has(f.uid)?"default":"pointer",whiteSpace:"nowrap"}}
               >
-                {sent[f.uid]?"Invited ✓":"Invite"}
+                {pendingInvites.has(f.uid)?"Pending ✓":"Invite"}
               </button>
             </div>
           ))}
