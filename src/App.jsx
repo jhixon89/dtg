@@ -2291,6 +2291,274 @@ function PlayerProfile({playerName,allRounds,rankings,members,profile,onBack}){
   );
 }
 
+// ─── GREEN READER ────────────────────────────────────────────────────────────
+function GreenReader(){
+  const [photo,      setPhoto]      = useState(null);
+  const [analyzing,  setAnalyzing]  = useState(false);
+  const [result,     setResult]     = useState(null);
+  const [error,      setError]      = useState(null);
+  const [puttDist,   setPuttDist]   = useState("");
+  const [greenSpeed, setGreenSpeed] = useState("medium");
+  const fileRef  = useRef(null);
+  const canvasRef= useRef(null);
+
+  async function handlePhoto(e){
+    const f=e.target.files[0];if(!f)return;
+    const resized=await resizeImage(f,900,0.88);
+    setPhoto(resized);
+    setResult(null);
+    setError(null);
+    e.target.value="";
+  }
+
+  async function analyzeGreen(){
+    if(!photo)return;
+    setAnalyzing(true);
+    setError(null);
+    try {
+      const base64=photo.split(",")[1];
+      const response=await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          model:"claude-sonnet-4-20250514",
+          max_tokens:1000,
+          messages:[{
+            role:"user",
+            content:[
+              {
+                type:"image",
+                source:{type:"base64",media_type:"image/jpeg",data:base64}
+              },
+              {
+                type:"text",
+                text:`You are an expert golf green reader with PGA Tour caddie experience. Analyze this photo of a putting green taken from behind the golf ball looking toward the hole.
+
+Study the slope, shadows, grass grain direction, and any visible terrain features.
+${puttDist?`The putt is approximately ${puttDist} feet long.`:""}
+The green speed is ${greenSpeed==="slow"?"slow (stimp 7-8) — ball will break less, needs more speed":greenSpeed==="medium"?"medium (stimp 9-10) — standard break":greenSpeed==="fast"?"fast (stimp 11-12) — ball will break more, needs less speed":"tour speed (stimp 13+) — maximum break, very light touch"}.
+
+Factor in green speed and putt distance when drawing the path — longer putts and faster greens mean more break.
+
+Respond ONLY with a valid JSON object, no other text:
+{
+  "pathPoints": [
+    {"x": 50, "y": 92},
+    ...6 to 9 more points showing the full curved path...
+    {"x": 50, "y": 8}
+  ],
+  "break": "left" or "right" or "straight",
+  "severity": 1-10,
+  "uphill": true or false,
+  "summary": "one sentence caddie-style read including speed tip"
+}
+
+pathPoints are x,y percentages of image dimensions.
+Start near ball (bottom center ~x:50 y:92) and curve realistically to hole (top center ~x:50 y:8).
+The break severity, green speed, and putt distance should all influence how much the path curves.
+x:0=left, x:100=right, y:0=top, y:100=bottom.`
+              }
+            ]
+          }]
+        })
+      });
+
+      const data=await response.json();
+      const text=data.content?.[0]?.text||"";
+      const clean=text.replace(/```json|```/g,"").trim();
+      const parsed=JSON.parse(clean);
+      setResult(parsed);
+      // Draw line after state update
+      setTimeout(()=>drawLine(parsed),100);
+    } catch(e){
+      setError("Could not read the green — try a clearer photo with the hole visible.");
+      console.error(e);
+    }
+    setAnalyzing(false);
+  }
+
+  function drawLine(res){
+    const canvas=canvasRef.current;
+    if(!canvas||!res?.pathPoints?.length)return;
+    const img=canvas.previousSibling;
+    if(!img)return;
+    canvas.width=img.offsetWidth;
+    canvas.height=img.offsetHeight;
+    const ctx=canvas.getContext("2d");
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    const pts=res.pathPoints.map(p=>({
+      x:(p.x/100)*canvas.width,
+      y:(p.y/100)*canvas.height
+    }));
+
+    // Draw glow
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x,pts[0].y);
+    for(let i=1;i<pts.length-1;i++){
+      const mx=(pts[i].x+pts[i+1].x)/2;
+      const my=(pts[i].y+pts[i+1].y)/2;
+      ctx.quadraticCurveTo(pts[i].x,pts[i].y,mx,my);
+    }
+    ctx.lineTo(pts[pts.length-1].x,pts[pts.length-1].y);
+    ctx.strokeStyle="rgba(255,50,50,0.35)";
+    ctx.lineWidth=12;
+    ctx.lineCap="round";
+    ctx.lineJoin="round";
+    ctx.stroke();
+
+    // Draw main red line
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x,pts[0].y);
+    for(let i=1;i<pts.length-1;i++){
+      const mx=(pts[i].x+pts[i+1].x)/2;
+      const my=(pts[i].y+pts[i+1].y)/2;
+      ctx.quadraticCurveTo(pts[i].x,pts[i].y,mx,my);
+    }
+    ctx.lineTo(pts[pts.length-1].x,pts[pts.length-1].y);
+    ctx.strokeStyle="#ff2020";
+    ctx.lineWidth=4;
+    ctx.stroke();
+
+    // Draw arrowhead at end
+    const last=pts[pts.length-1];
+    const prev=pts[pts.length-2];
+    const angle=Math.atan2(last.y-prev.y,last.x-prev.x);
+    ctx.beginPath();
+    ctx.moveTo(last.x,last.y);
+    ctx.lineTo(last.x-18*Math.cos(angle-0.4),last.y-18*Math.sin(angle-0.4));
+    ctx.lineTo(last.x-18*Math.cos(angle+0.4),last.y-18*Math.sin(angle+0.4));
+    ctx.closePath();
+    ctx.fillStyle="#ff2020";
+    ctx.fill();
+
+    // Draw ball dot at start
+    ctx.beginPath();
+    ctx.arc(pts[0].x,pts[0].y,7,0,Math.PI*2);
+    ctx.fillStyle="white";
+    ctx.fill();
+    ctx.strokeStyle="#ff2020";
+    ctx.lineWidth=2;
+    ctx.stroke();
+  }
+
+  function reset(){setPhoto(null);setResult(null);setError(null);}
+
+  const breakColor=result?.break==="left"?"#60a8ff":result?.break==="right"?"#ff9060":"#60ff90";
+
+  return(
+    <div style={{fontFamily:"'DM Sans',sans-serif"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+        <div>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:16,fontWeight:700,color:"#c9a227",letterSpacing:1}}>🎯 GREEN READER</div>
+          <div style={{fontSize:11,color:"#8a9e8a",marginTop:2}}>AI-powered break prediction</div>
+        </div>
+        {photo&&<button onClick={reset} style={{background:"none",border:"none",color:"#8a9e8a",fontSize:12,cursor:"pointer"}}>✕ Reset</button>}
+      </div>
+
+      {!photo&&(
+        <div onClick={()=>fileRef.current?.click()} style={{width:"100%",aspectRatio:"4/3",background:"rgba(5,14,6,.8)",border:"1px dashed rgba(42,107,52,.4)",borderRadius:16,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10}}>
+          <div style={{fontSize:48}}>📸</div>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:14,fontWeight:600,color:"#f5f0e8"}}>Take a Green Photo</div>
+          <div style={{fontSize:12,color:"#8a9e8a",textAlign:"center",padding:"0 20px"}}>Stand behind your ball, aim at the hole, take the photo</div>
+        </div>
+      )}
+
+      {photo&&(
+        <div style={{position:"relative",borderRadius:16,overflow:"hidden",marginBottom:12}}>
+          <img src={photo} alt="green" style={{width:"100%",display:"block",borderRadius:16}}/>
+          <canvas ref={canvasRef} style={{position:"absolute",inset:0,width:"100%",height:"100%",pointerEvents:"none"}}/>
+        </div>
+      )}
+
+      <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={handlePhoto}/>
+
+      {photo&&!result&&(
+        <div style={{background:"rgba(13,32,16,.85)",border:"1px solid rgba(42,107,52,.25)",borderRadius:14,padding:"16px",marginBottom:12,display:"flex",flexDirection:"column",gap:14}}>
+
+          {/* Putt distance */}
+          <div>
+            <label style={{display:"block",fontSize:10,color:"#8a9e8a",letterSpacing:2,textTransform:"uppercase",marginBottom:8}}>Putt Distance (feet)</label>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              {[3,6,10,15,20,30].map(d=>(
+                <button key={d} onClick={()=>setPuttDist(String(d))} style={{padding:"9px 14px",borderRadius:9,cursor:"pointer",fontSize:13,fontWeight:600,background:puttDist===String(d)?`linear-gradient(135deg,${C.green},${C.greenLight})`:"rgba(5,14,6,.7)",border:puttDist===String(d)?"1px solid rgba(77,184,96,.4)":"1px solid rgba(42,107,52,.3)",color:puttDist===String(d)?C.cream:C.creamMuted}}>
+                  {d}ft
+                </button>
+              ))}
+              <input
+                type="number"
+                value={![3,6,10,15,20,30].includes(+puttDist)?puttDist:""}
+                onChange={e=>setPuttDist(e.target.value)}
+                placeholder="Other"
+                style={{...iStyle(false),width:80,padding:"8px 10px",fontSize:13,textAlign:"center"}}
+              />
+            </div>
+          </div>
+
+          {/* Green speed */}
+          <div>
+            <label style={{display:"block",fontSize:10,color:"#8a9e8a",letterSpacing:2,textTransform:"uppercase",marginBottom:8}}>Green Speed</label>
+            <div style={{display:"flex",gap:8}}>
+              {[
+                {v:"slow",l:"🐢 Slow",sub:"Stimp 7-8"},
+                {v:"medium",l:"⛳ Medium",sub:"Stimp 9-10"},
+                {v:"fast",l:"🚀 Fast",sub:"Stimp 11-12"},
+                {v:"tour",l:"💎 Tour",sub:"Stimp 13+"},
+              ].map(s=>(
+                <button key={s.v} onClick={()=>setGreenSpeed(s.v)} style={{flex:1,padding:"10px 6px",borderRadius:10,cursor:"pointer",textAlign:"center",background:greenSpeed===s.v?`linear-gradient(135deg,#7a5f10,#c9a227)`:"rgba(5,14,6,.7)",border:greenSpeed===s.v?"1px solid rgba(201,162,39,.5)":"1px solid rgba(42,107,52,.3)",color:greenSpeed===s.v?C.cream:C.creamMuted}}>
+                  <div style={{fontSize:11,fontWeight:600}}>{s.l}</div>
+                  <div style={{fontSize:9,opacity:.7,marginTop:2}}>{s.sub}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <button className="bh" onClick={analyzeGreen} disabled={analyzing} style={{width:"100%",background:analyzing?"rgba(60,60,60,.4)":`linear-gradient(135deg,#c9a227,#7a5f10)`,border:"none",borderRadius:12,color:analyzing?"#8a9e8a":"#0a1a0c",padding:"14px",fontSize:14,fontWeight:700,cursor:analyzing?"not-allowed":"pointer",letterSpacing:1,fontFamily:"'Cinzel',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+            {analyzing?<><div className="spin" style={{width:18,height:18,border:"2px solid rgba(77,184,96,.3)",borderTop:"2px solid #4db860",borderRadius:"50%",display:"inline-block"}}/> Reading Green…</>:"READ THIS GREEN 🎯"}
+          </button>
+        </div>
+      )}
+
+      {error&&(
+        <div style={{background:"rgba(192,64,64,.1)",border:"1px solid rgba(192,64,64,.3)",borderRadius:12,padding:"14px 16px",color:"#e07070",fontSize:13,marginBottom:12}}>
+          {error}
+        </div>
+      )}
+
+      {result&&(
+        <div style={{background:"rgba(13,32,16,.9)",border:"1px solid rgba(42,107,52,.25)",borderRadius:14,padding:"16px 18px",marginBottom:12}}>
+          {/* Context bar */}
+          {(puttDist||greenSpeed)&&(
+            <div style={{display:"flex",gap:8,marginBottom:12,fontSize:11,color:"#8a9e8a",flexWrap:"wrap"}}>
+              {puttDist&&<span style={{background:"rgba(42,107,52,.2)",borderRadius:6,padding:"3px 8px"}}>📏 {puttDist} ft putt</span>}
+              <span style={{background:"rgba(201,162,39,.1)",borderRadius:6,padding:"3px 8px"}}>⛳ {greenSpeed==="slow"?"Slow greens":greenSpeed==="medium"?"Medium greens":greenSpeed==="fast"?"Fast greens":"Tour speed"}</span>
+            </div>
+          )}
+          <div style={{display:"flex",gap:12,marginBottom:12,flexWrap:"wrap"}}>
+            <div style={{background:"rgba(5,14,6,.6)",borderRadius:10,padding:"10px 14px",flex:1,minWidth:80,textAlign:"center"}}>
+              <div style={{fontSize:10,color:"#8a9e8a",letterSpacing:2,textTransform:"uppercase",marginBottom:4}}>Break</div>
+              <div style={{fontFamily:"'Cinzel',serif",fontSize:18,fontWeight:700,color:breakColor,textTransform:"capitalize"}}>{result.break}</div>
+            </div>
+            <div style={{background:"rgba(5,14,6,.6)",borderRadius:10,padding:"10px 14px",flex:1,minWidth:80,textAlign:"center"}}>
+              <div style={{fontSize:10,color:"#8a9e8a",letterSpacing:2,textTransform:"uppercase",marginBottom:4}}>Severity</div>
+              <div style={{fontFamily:"'Cinzel',serif",fontSize:18,fontWeight:700,color:"#f5f0e8"}}>{result.severity}<span style={{fontSize:11,color:"#8a9e8a"}}>/10</span></div>
+            </div>
+            <div style={{background:"rgba(5,14,6,.6)",borderRadius:10,padding:"10px 14px",flex:1,minWidth:80,textAlign:"center"}}>
+              <div style={{fontSize:10,color:"#8a9e8a",letterSpacing:2,textTransform:"uppercase",marginBottom:4}}>Slope</div>
+              <div style={{fontFamily:"'Cinzel',serif",fontSize:18,fontWeight:700,color:"#f5f0e8"}}>{result.uphill?"Up ⬆️":"Down ⬇️"}</div>
+            </div>
+          </div>
+          <div style={{background:"rgba(201,162,39,.06)",border:"1px solid rgba(201,162,39,.2)",borderRadius:10,padding:"12px 14px"}}>
+            <div style={{fontSize:10,color:"#8a9e8a",letterSpacing:2,textTransform:"uppercase",marginBottom:6}}>AI Read</div>
+            <div style={{fontSize:14,color:"#f5f0e8",lineHeight:1.6}}>{result.summary}</div>
+          </div>
+          <button onClick={()=>fileRef.current?.click()} style={{width:"100%",background:"rgba(255,255,255,.05)",border:"1px solid rgba(42,107,52,.25)",borderRadius:10,color:"#8a9e8a",padding:"11px",fontSize:13,cursor:"pointer",marginTop:10}}>📸 Read Another Green</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── CADDY ────────────────────────────────────────────────────────────────────
 function CaddyView({members,bags,saveBags}){
   const [subView,   setSubView]   = useState("calc");
@@ -2320,8 +2588,9 @@ function CaddyView({members,bags,saveBags}){
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
         <div><div style={{fontFamily:"'Cinzel',serif",fontSize:18,fontWeight:600,color:C.cream}}>🏌️ CADDY</div><div style={{fontSize:12,color:C.creamMuted,marginTop:3}}>Club recommendations based on your bag</div></div>
         <div style={{display:"flex",gap:8}}>
-          <button className="bh" onClick={()=>setSubView("calc")} style={{background:subView==="calc"?`linear-gradient(135deg,${C.green},${C.greenLight})`:"rgba(13,32,16,.7)",border:subView==="calc"?"1px solid rgba(77,184,96,.4)":"1px solid rgba(42,107,52,.3)",borderRadius:9,color:subView==="calc"?C.cream:C.creamMuted,padding:"8px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Calculate</button>
-          <button className="bh" onClick={()=>setSubView("bag")} style={{background:subView==="bag"?`linear-gradient(135deg,${C.green},${C.greenLight})`:"rgba(13,32,16,.7)",border:subView==="bag"?"1px solid rgba(77,184,96,.4)":"1px solid rgba(42,107,52,.3)",borderRadius:9,color:subView==="bag"?C.cream:C.creamMuted,padding:"8px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>My Bag</button>
+          <button className="bh" onClick={()=>setSubView("calc")} style={{background:subView==="calc"?`linear-gradient(135deg,${C.green},${C.greenLight})`:"rgba(13,32,16,.7)",border:subView==="calc"?"1px solid rgba(77,184,96,.4)":"1px solid rgba(42,107,52,.3)",borderRadius:9,color:subView==="calc"?C.cream:C.creamMuted,padding:"8px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Calculate</button>
+          <button className="bh" onClick={()=>setSubView("green")} style={{background:subView==="green"?`linear-gradient(135deg,#7a5f10,#c9a227)`:"rgba(13,32,16,.7)",border:subView==="green"?"1px solid rgba(201,162,39,.5)":"1px solid rgba(42,107,52,.3)",borderRadius:9,color:subView==="green"?C.cream:C.creamMuted,padding:"8px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>🎯 Green</button>
+          <button className="bh" onClick={()=>setSubView("bag")} style={{background:subView==="bag"?`linear-gradient(135deg,${C.green},${C.greenLight})`:"rgba(13,32,16,.7)",border:subView==="bag"?"1px solid rgba(77,184,96,.4)":"1px solid rgba(42,107,52,.3)",borderRadius:9,color:subView==="bag"?C.cream:C.creamMuted,padding:"8px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>My Bag</button>
         </div>
       </div>
 
@@ -2376,6 +2645,8 @@ function CaddyView({members,bags,saveBags}){
           )}
         </div>
       )}
+
+      {subView==="green"&&<GreenReader/>}
 
       {subView==="bag"&&(
         <div>
