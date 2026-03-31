@@ -778,10 +778,10 @@ function CourseProfile({course, currentUser, onBack, onAddCommunityPhoto}){
         )}
 
         {/* Tabs */}
-        <div style={{display:"flex",borderBottom:"1px solid rgba(42,107,52,.2)",marginBottom:20}}>
-          {["photos","scorecard"].map(t=>(
-            <button key={t} onClick={()=>setActiveTab(t)} style={{padding:"10px 16px",background:"none",border:"none",cursor:"pointer",fontSize:13,fontWeight:600,color:activeTab===t?C.goldLight:C.creamMuted,borderBottom:activeTab===t?`2px solid ${C.gold}`:"2px solid transparent",textTransform:"capitalize"}}>
-              {t==="photos"?"📸 Photos":`📋 Scorecard`}
+        <div style={{display:"flex",borderBottom:"1px solid rgba(42,107,52,.2)",marginBottom:20,overflowX:"auto"}}>
+          {["photos","holes","scorecard"].map(t=>(
+            <button key={t} onClick={()=>setActiveTab(t)} style={{padding:"10px 14px",background:"none",border:"none",cursor:"pointer",fontSize:13,fontWeight:600,color:activeTab===t?C.goldLight:C.creamMuted,borderBottom:activeTab===t?`2px solid ${C.gold}`:"2px solid transparent",whiteSpace:"nowrap",flexShrink:0}}>
+              {t==="photos"?"📸 Photos":t==="holes"?"⛳ Holes":"📋 Scorecard"}
             </button>
           ))}
         </div>
@@ -820,6 +820,16 @@ function CourseProfile({course, currentUser, onBack, onAddCommunityPhoto}){
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* HOLES TAB */}
+        {activeTab==="holes"&&(
+          <div>
+            {(course.holeData||[]).length===0&&<Empty msg="Hole details not added yet"/>}
+            {(course.holeData||Array.from({length:course.holes||18},(_,i)=>({holeNum:i+1,photos:[],greenModel:null}))).map((hole,i)=>(
+              <HoleProfileCard key={i} hole={hole} par={course.pars?.[i]||4}/>
+            ))}
           </div>
         )}
 
@@ -886,6 +896,155 @@ function CourseProfile({course, currentUser, onBack, onAddCommunityPhoto}){
   );
 }
 
+
+
+// ─── HOLE PROFILE CARD (public view) ─────────────────────────────────────────
+function HoleProfileCard({hole, par}){
+  const [expanded,  setExpanded]  = useState(false);
+  const [imgFull,   setImgFull]   = useState(null);
+  const [show3D,    setShow3D]    = useState(false);
+
+  const photoCount=(hole.photos||[]).length;
+  const hasModel=!!hole.greenModel;
+
+  return(
+    <div style={{border:"1px solid rgba(42,107,52,.18)",borderRadius:14,marginBottom:10,overflow:"hidden"}}>
+      <button onClick={()=>setExpanded(v=>!v)} style={{width:"100%",background:"rgba(13,32,16,.7)",border:"none",cursor:"pointer",padding:"14px 16px",display:"flex",alignItems:"center",gap:12,textAlign:"left"}}>
+        <div style={{width:40,height:40,borderRadius:10,background:`linear-gradient(135deg,${C.green},${C.greenLight})`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Cinzel',serif",fontSize:16,fontWeight:700,color:C.cream,flexShrink:0}}>{hole.holeNum}</div>
+        <div style={{flex:1}}>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:15,fontWeight:700,color:C.cream}}>Hole {hole.holeNum}</div>
+          <div style={{fontSize:12,color:C.creamMuted,marginTop:2}}>Par {par}</div>
+        </div>
+        <div style={{display:"flex",gap:6}}>
+          {photoCount>0&&<span style={{fontSize:11,background:"rgba(42,107,52,.2)",borderRadius:6,padding:"3px 8px",color:C.greenBright}}>📸 {photoCount}</span>}
+          {hasModel&&<span style={{fontSize:11,background:"rgba(201,162,39,.15)",borderRadius:6,padding:"3px 8px",color:C.goldLight}}>3D</span>}
+        </div>
+        <span style={{color:C.creamMuted}}>{expanded?"▲":"▼"}</span>
+      </button>
+
+      {expanded&&(
+        <div style={{padding:"14px 14px",background:"rgba(5,14,6,.4)"}}>
+
+          {/* Photos */}
+          {photoCount>0&&(
+            <>
+              {imgFull&&<div onClick={()=>setImgFull(null)} style={{position:"fixed",inset:0,zIndex:500,background:"rgba(0,0,0,.95)",display:"flex",alignItems:"center",justifyContent:"center",padding:16,cursor:"pointer"}}><img src={imgFull} alt="" style={{maxWidth:"100%",maxHeight:"90vh",objectFit:"contain",borderRadius:8}}/></div>}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:14}}>
+                {(hole.photos||[]).map((p,i)=>(
+                  <img key={i} src={p} alt={`Hole ${hole.holeNum}`} onClick={()=>setImgFull(p)} style={{width:"100%",aspectRatio:"1/1",objectFit:"cover",borderRadius:8,cursor:"pointer"}}/>
+                ))}
+              </div>
+            </>
+          )}
+
+          {photoCount===0&&!hasModel&&(
+            <div style={{textAlign:"center",padding:"20px",color:C.creamMuted,fontSize:12}}>No photos yet for this hole</div>
+          )}
+
+          {/* 3D Green Model */}
+          {hasModel&&(
+            <div>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                <div style={{fontSize:11,color:C.goldLight,fontWeight:600,letterSpacing:1}}>📦 3D GREEN MODEL</div>
+                <button onClick={()=>setShow3D(v=>!v)} style={{background:`linear-gradient(135deg,${C.gold},${C.goldDim})`,border:"none",borderRadius:8,color:"#0a1a0c",padding:"6px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>{show3D?"Hide 3D":"View in 3D"}</button>
+              </div>
+              {show3D&&<ModelViewerEmbed glbData={hole.greenModel} label={`Hole ${hole.holeNum} Green`}/>}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── HOLE DATA EDITOR (Admin) ─────────────────────────────────────────────────
+function HoleDataEditor({holeNum, data, onChange, par}){
+  const [expanded, setExpanded] = useState(false);
+  const photoRef = useRef(null);
+  const glbRef   = useRef(null);
+
+  async function handlePhotos(e){
+    const files=Array.from(e.target.files);
+    const resized=await Promise.all(files.map(f=>resizeImage(f,900,0.82)));
+    onChange({...data,photos:[...(data.photos||[]),...resized]});
+    e.target.value="";
+  }
+
+  async function handleGlb(e){
+    const f=e.target.files[0];if(!f)return;
+    // Read GLB as base64
+    const reader=new FileReader();
+    reader.onload=ev=>{onChange({...data,greenModel:ev.target.result});};
+    reader.readAsDataURL(f);
+    e.target.value="";
+  }
+
+  function removePhoto(i){onChange({...data,photos:(data.photos||[]).filter((_,pi)=>pi!==i)});}
+  function removeModel(){onChange({...data,greenModel:null});}
+
+  const photoCount=(data.photos||[]).length;
+  const hasModel=!!data.greenModel;
+
+  return(
+    <div style={{border:"1px solid rgba(42,107,52,.15)",borderRadius:12,marginBottom:8,overflow:"hidden"}}>
+      <button onClick={()=>setExpanded(v=>!v)} style={{width:"100%",background:"rgba(5,14,6,.6)",border:"none",cursor:"pointer",padding:"12px 14px",display:"flex",alignItems:"center",gap:10,textAlign:"left"}}>
+        <div style={{width:28,height:28,borderRadius:7,background:`linear-gradient(135deg,${C.green},${C.greenLight})`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Cinzel',serif",fontSize:12,fontWeight:700,color:C.cream,flexShrink:0}}>
+          {holeNum}
+        </div>
+        <div style={{flex:1}}>
+          <span style={{fontSize:13,fontWeight:600,color:C.cream}}>Hole {holeNum}</span>
+          <span style={{fontSize:11,color:C.creamMuted,marginLeft:8}}>Par {par}</span>
+        </div>
+        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+          {photoCount>0&&<span style={{fontSize:10,background:"rgba(42,107,52,.3)",borderRadius:4,padding:"2px 6px",color:C.greenBright}}>📸 {photoCount}</span>}
+          {hasModel&&<span style={{fontSize:10,background:"rgba(201,162,39,.2)",borderRadius:4,padding:"2px 6px",color:C.goldLight}}>3D ✓</span>}
+          <span style={{color:C.creamMuted,fontSize:14}}>{expanded?"▲":"▼"}</span>
+        </div>
+      </button>
+
+      {expanded&&(
+        <div style={{padding:"14px 14px",background:"rgba(13,32,16,.6)"}}>
+          {/* Hole photos */}
+          <div style={{marginBottom:14}}>
+            <div style={{fontSize:10,color:C.creamMuted,letterSpacing:2,textTransform:"uppercase",marginBottom:8}}>Hole Photos</div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:8}}>
+              {(data.photos||[]).map((p,i)=>(
+                <div key={i} style={{position:"relative",width:72,height:72}}>
+                  <img src={p} alt="" style={{width:72,height:72,objectFit:"cover",borderRadius:8}}/>
+                  <button onClick={()=>removePhoto(i)} style={{position:"absolute",top:-5,right:-5,width:18,height:18,borderRadius:"50%",background:"rgba(192,64,64,.9)",border:"none",color:"white",fontSize:10,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+                </div>
+              ))}
+              <button onClick={()=>photoRef.current?.click()} style={{width:72,height:72,borderRadius:8,background:"rgba(5,14,6,.7)",border:"1px dashed rgba(42,107,52,.4)",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,color:C.creamMuted,fontSize:10}}>
+                <span style={{fontSize:20}}>+</span>
+                Photo
+              </button>
+            </div>
+            <input ref={photoRef} type="file" accept="image/*" multiple style={{display:"none"}} onChange={handlePhotos}/>
+          </div>
+
+          {/* 3D Green Model */}
+          <div>
+            <div style={{fontSize:10,color:C.creamMuted,letterSpacing:2,textTransform:"uppercase",marginBottom:8}}>3D Green Model (Polycam GLB)</div>
+            {hasModel?(
+              <div style={{marginBottom:8}}>
+                <ModelViewerEmbed glbData={data.greenModel} label={`Hole ${holeNum} Green`}/>
+                <button onClick={removeModel} style={{marginTop:8,background:"rgba(192,64,64,.15)",border:"1px solid rgba(192,64,64,.3)",borderRadius:7,color:"#e07070",padding:"6px 12px",fontSize:11,cursor:"pointer"}}>Remove 3D Model</button>
+              </div>
+            ):(
+              <button onClick={()=>glbRef.current?.click()} style={{width:"100%",background:"rgba(5,14,6,.7)",border:"1px dashed rgba(201,162,39,.3)",borderRadius:10,color:C.goldLight,padding:"14px",fontSize:12,cursor:"pointer",textAlign:"center"}}>
+                <div style={{fontSize:20,marginBottom:4}}>📦</div>
+                <div style={{fontWeight:600}}>Upload Polycam GLB</div>
+                <div style={{fontSize:10,color:C.creamMuted,marginTop:2}}>Export from Polycam as GLB/GLTF</div>
+              </button>
+            )}
+            <input ref={glbRef} type="file" accept=".glb,.gltf" style={{display:"none"}} onChange={handleGlb}/>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── DTG ADMIN PANEL ─────────────────────────────────────────────────────────
 function DtgAdminPanel({courses, onSaveCourses, shopItems, onSaveShop, onClose}){
   const [adminTab,    setAdminTab]    = useState("courses"); // courses | shop
@@ -929,7 +1088,7 @@ function DtgAdminPanel({courses, onSaveCourses, shopItems, onSaveShop, onClose})
   }
 
   // Course form
-  const emptyCourse=()=>({id:"c_"+Date.now(),name:"",city:"",state:"FL",holes:18,tees:[{name:"Blue",color:"#1a4dcc",rating:"",slope:"",yardages:Array(18).fill("")},{name:"White",color:"#e8e8e8",rating:"",slope:"",yardages:Array(18).fill("")},{name:"Red",color:"#cc1a1a",rating:"",slope:"",yardages:Array(18).fill("")}],pars:Array(18).fill("4"),handicaps:Array(18).fill(""),practiceRange:false,practiceNotes:"",signatureHole:"",signatureHoleNote:"",featuredPhotos:[],communityPhotos:[],createdAt:new Date().toISOString()});
+  const emptyCourse=()=>({id:"c_"+Date.now(),name:"",city:"",state:"FL",holes:18,tees:[{name:"Blue",color:"#1a4dcc",rating:"",slope:"",yardages:Array(18).fill("")},{name:"White",color:"#e8e8e8",rating:"",slope:"",yardages:Array(18).fill("")},{name:"Red",color:"#cc1a1a",rating:"",slope:"",yardages:Array(18).fill("")}],pars:Array(18).fill("4"),handicaps:Array(18).fill(""),practiceRange:false,practiceNotes:"",signatureHole:"",signatureHoleNote:"",featuredPhotos:[],communityPhotos:[],holeData:Array.from({length:18},(_,i)=>({holeNum:i+1,photos:[],greenModel:null,notes:""})),createdAt:new Date().toISOString()});
   const [form, setForm] = useState(emptyCourse());
 
   function startAdd(){setForm(emptyCourse());setView("add");}
@@ -1172,6 +1331,25 @@ function DtgAdminPanel({courses, onSaveCourses, shopItems, onSaveShop, onClose})
             </div>
 
             <button className="bh" onClick={saveHoles} disabled={saving} style={{width:"100%",background:`linear-gradient(135deg,${C.gold},${C.goldDim})`,border:"none",borderRadius:12,color:"#0a1a0c",padding:"14px",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"'Cinzel',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>{saving?<><Spinner/>Saving…</>:"SAVE YARDAGES ⛳"}</button>
+
+            {/* Per-hole photos and 3D green */}
+            <div style={{marginTop:20}}>
+              <div style={{fontSize:10,color:C.creamMuted,letterSpacing:2,textTransform:"uppercase",marginBottom:14}}>📸 Hole Photos & 3D Green Models</div>
+              {Array.from({length:holesCourse.holes||18},(_,i)=>(
+                <HoleDataEditor
+                  key={i}
+                  holeNum={i+1}
+                  data={(holesCourse.holeData||[])[i]||{holeNum:i+1,photos:[],greenModel:null,notes:""}}
+                  onChange={data=>{
+                    const updated={...holesCourse};
+                    const hd=[...(updated.holeData||Array.from({length:updated.holes||18},(_,j)=>({holeNum:j+1,photos:[],greenModel:null,notes:""})))];
+                    hd[i]={...hd[i],...data};
+                    setHolesCourse({...updated,holeData:hd});
+                  }}
+                  par={holesCourse.pars?.[i]||4}
+                />
+              ))}
+            </div>
           </div>
         )}
         </> }
@@ -1253,6 +1431,224 @@ function DtgAdminPanel({courses, onSaveCourses, shopItems, onSaveShop, onClose})
             )}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+
+// ─── MESSAGES TAB ─────────────────────────────────────────────────────────────
+function MessagesTab({currentUser, conversations, activeConvo, setActiveConvo, myFollowing}){
+  const [showNewChat,  setShowNewChat]  = useState(false);
+  const [newChatName,  setNewChatName]  = useState("");
+  const [searchUsers,  setSearchUsers]  = useState([]);
+  const [selected,     setSelected]     = useState([]);
+  const [groupName,    setGroupName]    = useState("");
+  const [creating,     setCreating]     = useState(false);
+
+  async function searchForUsers(text){
+    if(!text.trim()){setSearchUsers([]);return;}
+    const snap=await getDocs(collection(db,"users"));
+    const lower=text.toLowerCase();
+    setSearchUsers(snap.docs.map(d=>({uid:d.id,...d.data()}))
+      .filter(u=>u.uid!==currentUser.uid&&(u.displayName||"").toLowerCase().includes(lower))
+      .slice(0,10));
+  }
+
+  async function createConversation(){
+    if(selected.length===0)return;
+    setCreating(true);
+    const participants=[{uid:currentUser.uid,displayName:currentUser.displayName||""}, ...selected];
+    const uids=participants.map(p=>p.uid).sort();
+    const isGroup=participants.length>2;
+    const convoId=isGroup?"group_"+Date.now()+"_"+currentUser.uid:uids.join("_");
+    const convoRef=doc(db,"dtg_messages",convoId);
+    const snap=await getDoc(convoRef);
+    if(!snap.exists()){
+      await setDoc(convoRef,{
+        id:convoId,
+        participantUids:uids,
+        participants,
+        isGroup,
+        groupName:isGroup?(groupName.trim()||participants.map(p=>p.displayName.split(" ")[0]).join(", ")):"",
+        createdAt:new Date().toISOString(),
+        lastMessageAt:new Date().toISOString(),
+        lastMessage:"",
+        unreadBy:[],
+        status:"active",
+        messages:[],
+      });
+    }
+    setCreating(false);
+    setShowNewChat(false);
+    setSelected([]);
+    setGroupName("");
+    setActiveConvo(convoId);
+  }
+
+  if(activeConvo){
+    const convo=conversations.find(c=>c.id===activeConvo);
+    return <ConversationView convo={convo} convoId={activeConvo} currentUser={currentUser} onBack={()=>setActiveConvo(null)}/>;
+  }
+
+  return(
+    <div style={{maxWidth:520,margin:"0 auto",padding:"16px"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:18,fontWeight:700,color:C.cream}}>Messages</div>
+        <button className="bh" onClick={()=>setShowNewChat(v=>!v)} style={{background:`linear-gradient(135deg,${C.gold},${C.goldDim})`,border:"none",borderRadius:10,color:"#0a1a0c",padding:"9px 16px",fontSize:12,fontWeight:700,cursor:"pointer"}}>+ New Chat</button>
+      </div>
+
+      {showNewChat&&(
+        <div style={{background:"rgba(13,32,16,.85)",border:"1px solid rgba(42,107,52,.25)",borderRadius:16,padding:"18px",marginBottom:20}}>
+          <div style={{fontSize:13,fontWeight:600,color:C.cream,marginBottom:12}}>New Conversation</div>
+          <input onChange={e=>searchForUsers(e.target.value)} placeholder="Search friends by name…" style={{...iStyle(false),marginBottom:12,fontSize:13}}/>
+          {searchUsers.map(u=>{
+            const sel=selected.some(s=>s.uid===u.uid);
+            return(
+              <div key={u.uid} onClick={()=>setSelected(sel?selected.filter(s=>s.uid!==u.uid):[...selected,{uid:u.uid,displayName:u.displayName||""}])} style={{display:"flex",alignItems:"center",gap:10,padding:"10px",borderRadius:10,marginBottom:6,cursor:"pointer",background:sel?"rgba(42,107,52,.25)":"rgba(5,14,6,.5)",border:sel?"1px solid rgba(77,184,96,.3)":"1px solid rgba(42,107,52,.15)"}}>
+                <Avatar name={u.displayName||""} size={36} radius={18}/>
+                <span style={{fontSize:13,fontWeight:600,color:C.cream,flex:1}}>{u.displayName}</span>
+                {sel&&<span style={{color:C.greenBright,fontSize:16}}>✓</span>}
+              </div>
+            );
+          })}
+          {selected.length>1&&(
+            <input value={groupName} onChange={e=>setGroupName(e.target.value)} placeholder="Group name (optional)…" style={{...iStyle(false),marginBottom:12,fontSize:13,marginTop:8}}/>
+          )}
+          {selected.length>0&&(
+            <button className="bh" onClick={createConversation} disabled={creating} style={{width:"100%",background:`linear-gradient(135deg,${C.green},${C.greenLight})`,border:"none",borderRadius:10,color:C.cream,padding:"12px",fontSize:13,fontWeight:700,cursor:"pointer",marginTop:8,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+              {creating?<><Spinner/>Creating…</>:`Start Chat with ${selected.map(s=>s.displayName.split(" ")[0]).join(", ")}`}
+            </button>
+          )}
+        </div>
+      )}
+
+      {conversations.length===0&&(
+        <div style={{textAlign:"center",padding:"60px 20px",color:C.creamMuted}}>
+          <div style={{fontSize:40,marginBottom:14}}>💬</div>
+          <div style={{fontSize:15,color:C.creamDim,marginBottom:6}}>No messages yet</div>
+          <div style={{fontSize:13}}>Start a conversation with a friend</div>
+        </div>
+      )}
+
+      {conversations.map(c=>{
+        const others=c.participants?.filter(p=>p.uid!==currentUser.uid)||[];
+        const name=c.isGroup?(c.groupName||others.map(p=>p.displayName.split(" ")[0]).join(", ")):others[0]?.displayName||"Unknown";
+        const isUnread=(c.unreadBy||[]).includes(currentUser.uid);
+        return(
+          <div key={c.id} className="rh" onClick={()=>setActiveConvo(c.id)} style={{background:"rgba(13,32,16,.8)",border:isUnread?"1px solid rgba(77,184,96,.3)":"1px solid rgba(42,107,52,.15)",borderRadius:14,padding:"14px 16px",marginBottom:8,cursor:"pointer",display:"flex",alignItems:"center",gap:12}}>
+            {c.isGroup?(
+              <div style={{width:46,height:46,borderRadius:23,background:`linear-gradient(135deg,${C.green},${C.greenLight})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>👥</div>
+            ):(
+              <Avatar name={others[0]?.displayName||""} size={46} radius={23}/>
+            )}
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontWeight:isUnread?700:600,fontSize:14,color:isUnread?C.cream:C.creamDim}}>{name}</div>
+              <div style={{fontSize:12,color:C.creamMuted,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.lastMessage||"No messages yet"}</div>
+            </div>
+            <div style={{flexShrink:0,textAlign:"right"}}>
+              {c.lastMessageAt&&<div style={{fontSize:10,color:C.creamMuted}}>{formatAgo(c.lastMessageAt)}</div>}
+              {isUnread&&<div style={{width:10,height:10,borderRadius:"50%",background:C.greenBright,marginTop:4,marginLeft:"auto"}}/>}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── CONVERSATION VIEW ─────────────────────────────────────────────────────────
+function ConversationView({convo, convoId, currentUser, onBack}){
+  const [messages,  setMessages]  = useState([]);
+  const [text,      setText]      = useState("");
+  const [sending,   setSending]   = useState(false);
+  const bottomRef = useRef(null);
+
+  useEffect(()=>{
+    const unsub=onSnapshot(doc(db,"dtg_messages",convoId),snap=>{
+      if(snap.exists()){
+        setMessages(snap.data().messages||[]);
+        // Mark as read
+        const unreadBy=(snap.data().unreadBy||[]).filter(u=>u!==currentUser.uid);
+        setDoc(doc(db,"dtg_messages",convoId),{unreadBy},{merge:true});
+      }
+    });
+    return unsub;
+  },[convoId,currentUser.uid]);
+
+  useEffect(()=>{
+    bottomRef.current?.scrollIntoView({behavior:"smooth"});
+  },[messages]);
+
+  async function sendMessage(){
+    if(!text.trim())return;
+    setSending(true);
+    const msg={id:Date.now().toString(),uid:currentUser.uid,displayName:currentUser.displayName||"",text:text.trim(),sentAt:new Date().toISOString()};
+    const others=(convo?.participantUids||[]).filter(u=>u!==currentUser.uid);
+    await setDoc(doc(db,"dtg_messages",convoId),{
+      messages:[...messages,msg],
+      lastMessage:text.trim().slice(0,60),
+      lastMessageAt:new Date().toISOString(),
+      unreadBy:others,
+    },{merge:true});
+    setText("");
+    setSending(false);
+  }
+
+  const others=convo?.participants?.filter(p=>p.uid!==currentUser.uid)||[];
+  const chatName=convo?.isGroup?(convo.groupName||others.map(p=>p.displayName.split(" ")[0]).join(", ")):others[0]?.displayName||"Chat";
+
+  return(
+    <div style={{maxWidth:520,margin:"0 auto",display:"flex",flexDirection:"column",height:"calc(100vh - 120px)"}}>
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",borderBottom:"1px solid rgba(42,107,52,.2)",flexShrink:0}}>
+        <button onClick={onBack} style={{background:"none",border:"none",color:C.creamMuted,fontSize:20,cursor:"pointer",padding:0}}>‹</button>
+        {convo?.isGroup?(
+          <div style={{width:38,height:38,borderRadius:19,background:`linear-gradient(135deg,${C.green},${C.greenLight})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>👥</div>
+        ):(
+          <Avatar name={others[0]?.displayName||""} size={38} radius={19}/>
+        )}
+        <div style={{flex:1}}>
+          <div style={{fontWeight:600,fontSize:15,color:C.cream}}>{chatName}</div>
+          {convo?.isGroup&&<div style={{fontSize:11,color:C.creamMuted}}>{(convo.participantUids||[]).length} members</div>}
+        </div>
+      </div>
+
+      {/* Messages */}
+      <div style={{flex:1,overflowY:"auto",padding:"16px",display:"flex",flexDirection:"column",gap:8}}>
+        {messages.length===0&&(
+          <div style={{textAlign:"center",padding:"40px 0",color:C.creamMuted,fontSize:13}}>No messages yet — say something!</div>
+        )}
+        {messages.map(m=>{
+          const isMe=m.uid===currentUser.uid;
+          return(
+            <div key={m.id} style={{display:"flex",flexDirection:isMe?"row-reverse":"row",gap:8,alignItems:"flex-end"}}>
+              {!isMe&&<Avatar name={m.displayName||""} size={28} radius={14}/>}
+              <div style={{maxWidth:"72%"}}>
+                {!isMe&&convo?.isGroup&&<div style={{fontSize:10,color:C.creamMuted,marginBottom:3,paddingLeft:4}}>{m.displayName}</div>}
+                <div style={{background:isMe?`linear-gradient(135deg,${C.green},${C.greenLight})`:"rgba(13,32,16,.9)",border:isMe?"none":"1px solid rgba(42,107,52,.25)",borderRadius:isMe?"18px 18px 4px 18px":"18px 18px 18px 4px",padding:"10px 14px",fontSize:14,color:C.cream,lineHeight:1.5}}>
+                  {m.text}
+                </div>
+                <div style={{fontSize:10,color:C.creamMuted,marginTop:3,textAlign:isMe?"right":"left",paddingLeft:isMe?0:4}}>{formatAgo(m.sentAt)}</div>
+              </div>
+            </div>
+          );
+        })}
+        <div ref={bottomRef}/>
+      </div>
+
+      {/* Input */}
+      <div style={{padding:"12px 16px",borderTop:"1px solid rgba(42,107,52,.2)",display:"flex",gap:10,alignItems:"center",flexShrink:0,background:"#0a1a0c"}}>
+        <input
+          value={text}
+          onChange={e=>setText(e.target.value)}
+          onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMessage();}}}
+          placeholder="Message…"
+          style={{...iStyle(false),flex:1,borderRadius:24,padding:"10px 16px",fontSize:14}}
+        />
+        <button className="bh" onClick={sendMessage} disabled={!text.trim()||sending} style={{width:44,height:44,borderRadius:22,background:text.trim()?`linear-gradient(135deg,${C.gold},${C.goldDim})`:"rgba(60,60,60,.3)",border:"none",cursor:text.trim()?"pointer":"default",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>
+          {sending?<Spinner/>:"➤"}
+        </button>
       </div>
     </div>
   );
@@ -1482,6 +1878,9 @@ function HomeScreen({currentUser, onSelectGroup}){
   const [suggestions,   setSuggestions]   = useState([]);
   const [sugsLoading,   setSugsLoading]   = useState(false);
   const [shopItems,     setShopItems]     = useState([]);
+  const [conversations, setConversations] = useState([]);
+  const [activeConvo,   setActiveConvo]   = useState(null); // convo id
+  const [unreadCount,   setUnreadCount]   = useState(0);
   const [myProfile,     setMyProfile]     = useState({});
   const [myBag,         setMyBag]         = useState({});
   const [courses,       setCourses]       = useState([]);
@@ -1576,7 +1975,18 @@ function HomeScreen({currentUser, onSelectGroup}){
     const unsubShop=onSnapshot(doc(db,"dtg_data","shop"),snap=>{
       setShopItems(snap.exists()?(snap.data().items||[]):[]);
     });
-    return()=>{unsub();unsubCourses();unsubShop();};
+    // Load conversations for current user
+    const unsubConvos=onSnapshot(
+      query(collection(db,"dtg_messages"),where("participantUids","array-contains",currentUser.uid)),
+      snap=>{
+        const convos=snap.docs.map(d=>({id:d.id,...d.data()}))
+          .sort((a,b)=>new Date(b.lastMessageAt||0)-new Date(a.lastMessageAt||0));
+        setConversations(convos);
+        const unread=convos.filter(c=>(c.unreadBy||[]).includes(currentUser.uid)).length;
+        setUnreadCount(unread);
+      }
+    );
+    return()=>{unsub();unsubCourses();unsubShop();unsubConvos();};
   },[]);
   useEffect(()=>{
     async function load(){
@@ -1804,7 +2214,7 @@ function HomeScreen({currentUser, onSelectGroup}){
 
         {/* Tabs */}
         <div style={{maxWidth:520,margin:"0 auto",display:"flex",borderTop:"1px solid rgba(42,107,52,.15)"}}>
-          {[{id:"feed",label:"⛳ Feed"},{id:"people",label:"🏌️ People"},{id:"shop",label:"🛒 Shop"},{id:"courses",label:"🗺 Courses"},{id:"groups",label:"👥 Groups"}].map(t=>(
+          {[{id:"feed",label:"⛳ Feed"},{id:"messages",label:unreadCount>0?`💬 DMs (${unreadCount})`:"💬 DMs"},{id:"people",label:"🏌️ People"},{id:"shop",label:"🛒 Shop"},{id:"courses",label:"🗺 Courses"},{id:"groups",label:"👥 Groups"}].map(t=>(
             <button key={t.id} onClick={()=>setTab(t.id)} style={{flex:1,padding:"12px",background:"none",border:"none",cursor:"pointer",fontSize:12,fontWeight:600,color:tab===t.id?C.goldLight:C.creamMuted,borderBottom:tab===t.id?`2px solid ${C.gold}`:"2px solid transparent",transition:"all .15s"}}>
               {t.label}
             </button>
@@ -1855,6 +2265,17 @@ function HomeScreen({currentUser, onSelectGroup}){
       {/* SHOP TAB */}
       {tab==="shop"&&(
         <ShopTab items={shopItems} currentUser={currentUser}/>
+      )}
+
+      {/* MESSAGES TAB */}
+      {tab==="messages"&&(
+        <MessagesTab
+          currentUser={currentUser}
+          conversations={conversations}
+          activeConvo={activeConvo}
+          setActiveConvo={setActiveConvo}
+          myFollowing={[]}
+        />
       )}
 
       {/* COURSES TAB */}
@@ -2287,6 +2708,166 @@ function PlayerProfile({playerName,allRounds,rankings,members,profile,onBack}){
         {h2h.length>0&&(<div style={{background:"rgba(13,32,16,.9)",border:"1px solid rgba(42,107,52,.2)",borderRadius:14,padding:"18px 20px",marginBottom:20}}><div style={{fontSize:10,color:C.creamMuted,letterSpacing:2,textTransform:"uppercase",marginBottom:14}}>Head-to-Head</div>{h2h.map(([opp,rec])=>{const tot=rec.wins+rec.losses+rec.ties,wp=Math.round((rec.wins/tot)*100);return(<div key={opp} style={{display:"flex",alignItems:"center",gap:12,marginBottom:12,paddingBottom:12,borderBottom:"1px solid rgba(42,107,52,.15)"}}><div style={{width:32,height:32,borderRadius:8,background:avatarColor(opp),display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:C.cream,fontFamily:"'Cinzel',serif",flexShrink:0}}>{initials(opp)}</div><div style={{flex:1,minWidth:0}}><div style={{fontSize:13,fontWeight:600,color:C.cream,marginBottom:4}}>{opp}</div><div style={{height:5,borderRadius:3,background:"rgba(192,64,64,.3)",overflow:"hidden"}}><div style={{height:"100%",borderRadius:3,background:"linear-gradient(90deg,#2a8a3a,#4db860)",width:`${wp}%`,transition:"width .5s"}}/></div></div><div style={{textAlign:"right",flexShrink:0}}><div style={{fontFamily:"'Cinzel',serif",fontSize:14,fontWeight:700,color:rec.wins>rec.losses?C.greenBright:"#e07070"}}>{rec.wins}W – {rec.losses}L{rec.ties>0?` – ${rec.ties}T`:""}</div><div style={{fontSize:10,color:C.creamMuted}}>{tot} matchups</div></div></div>);})}
         </div>)}
       </>)}
+    </div>
+  );
+}
+
+
+// ─── GLB 3D GREEN VIEWER ──────────────────────────────────────────────────────
+function GreenModelViewer({glbData, holeName}){
+  const mountRef = useRef(null);
+  const rendererRef = useRef(null);
+
+  useEffect(()=>{
+    if(!glbData||!mountRef.current)return;
+    const el=mountRef.current;
+    const w=el.offsetWidth||300;
+    const h=el.offsetHeight||300;
+
+    // Dynamically load Three.js + GLTFLoader
+    const script1=document.createElement("script");
+    script1.src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js";
+    script1.onload=()=>{
+      const THREE=window.THREE;
+      const scene=new THREE.Scene();
+      scene.background=new THREE.Color(0x0a1a0c);
+
+      const camera=new THREE.PerspectiveCamera(60,w/h,0.01,1000);
+      camera.position.set(0,2,3);
+
+      const renderer=new THREE.WebGLRenderer({antialias:true});
+      renderer.setSize(w,h);
+      renderer.setPixelRatio(window.devicePixelRatio);
+      el.appendChild(renderer.domElement);
+      rendererRef.current=renderer;
+
+      // Lights
+      scene.add(new THREE.AmbientLight(0xffffff,1.2));
+      const dir=new THREE.DirectionalLight(0xffffff,1.5);
+      dir.position.set(5,10,5);
+      scene.add(dir);
+
+      // Load GLB from base64
+      const s2=document.createElement("script");
+      s2.src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js";
+
+      // Use GLTFLoader via inline
+      const byteStr=atob(glbData.split(",")[1]);
+      const ab=new ArrayBuffer(byteStr.length);
+      const ia=new Uint8Array(ab);
+      for(let i=0;i<byteStr.length;i++) ia[i]=byteStr.charCodeAt(i);
+      const blob=new Blob([ab],{type:"model/gltf-binary"});
+      const url=URL.createObjectURL(blob);
+
+      // GLTFLoader inline
+      if(!THREE.GLTFLoader){
+        // Simple approach — use model-viewer web component as fallback
+        const mv=document.createElement("model-viewer");
+        mv.src=url;
+        mv.setAttribute("auto-rotate","");
+        mv.setAttribute("camera-controls","");
+        mv.setAttribute("ar","");
+        mv.style.width="100%";
+        mv.style.height="100%";
+        mv.style.background="#0a1a0c";
+        el.innerHTML="";
+        el.appendChild(mv);
+
+        // Load model-viewer script
+        if(!window.customElements?.get("model-viewer")){
+          const mvScript=document.createElement("script");
+          mvScript.type="module";
+          mvScript.src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js";
+          document.head.appendChild(mvScript);
+        }
+        return;
+      }
+
+      const loader=new THREE.GLTFLoader();
+      loader.load(url,gltf=>{
+        const model=gltf.scene;
+        // Center model
+        const box=new THREE.Box3().setFromObject(model);
+        const center=box.getCenter(new THREE.Vector3());
+        model.position.sub(center);
+        const size=box.getSize(new THREE.Vector3()).length();
+        camera.position.set(0,size*0.5,size*1.5);
+        camera.lookAt(0,0,0);
+        scene.add(model);
+      });
+
+      // Touch/mouse orbit
+      let isDragging=false,lastX=0,lastY=0,rotX=0,rotY=0;
+      const pivot=new THREE.Object3D();
+      scene.add(pivot);
+
+      const onDown=e=>{isDragging=true;const p=e.touches?e.touches[0]:e;lastX=p.clientX;lastY=p.clientY;};
+      const onUp=()=>{isDragging=false;};
+      const onMove=e=>{
+        if(!isDragging)return;
+        const p=e.touches?e.touches[0]:e;
+        rotY+=(p.clientX-lastX)*0.5;
+        rotX+=(p.clientY-lastY)*0.5;
+        lastX=p.clientX;lastY=p.clientY;
+        camera.position.x=Math.sin(rotY*Math.PI/180)*3;
+        camera.position.z=Math.cos(rotY*Math.PI/180)*3;
+        camera.lookAt(0,0,0);
+      };
+      renderer.domElement.addEventListener("mousedown",onDown);
+      renderer.domElement.addEventListener("touchstart",onDown);
+      window.addEventListener("mouseup",onUp);
+      window.addEventListener("touchend",onUp);
+      renderer.domElement.addEventListener("mousemove",onMove);
+      renderer.domElement.addEventListener("touchmove",onMove);
+
+      const animate=()=>{requestAnimationFrame(animate);renderer.render(scene,camera);};
+      animate();
+    };
+    document.head.appendChild(script1);
+
+    // Fallback: model-viewer approach (more reliable)
+    return()=>{if(rendererRef.current){rendererRef.current.dispose();}};
+  },[glbData]);
+
+  if(!glbData) return null;
+
+  // Use model-viewer as primary approach (more reliable on mobile)
+  return(
+    <ModelViewerEmbed glbData={glbData} label={holeName}/>
+  );
+}
+
+function ModelViewerEmbed({glbData, label}){
+  const ref=useRef(null);
+  useEffect(()=>{
+    if(!ref.current||!glbData)return;
+    // Convert base64 to blob URL
+    const byteStr=atob(glbData.split(",")[1]);
+    const ab=new ArrayBuffer(byteStr.length);
+    const ia=new Uint8Array(ab);
+    for(let i=0;i<byteStr.length;i++)ia[i]=byteStr.charCodeAt(i);
+    const blob=new Blob([ab],{type:"model/gltf-binary"});
+    const url=URL.createObjectURL(blob);
+    ref.current.src=url;
+    // Load model-viewer if not already loaded
+    if(!window.customElements?.get("model-viewer")){
+      const s=document.createElement("script");
+      s.type="module";
+      s.src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js";
+      document.head.appendChild(s);
+    }
+    return()=>URL.revokeObjectURL(url);
+  },[glbData]);
+
+  return(
+    <div style={{width:"100%",aspectRatio:"1/1",background:"#0a1a0c",borderRadius:12,overflow:"hidden",position:"relative"}}>
+      <model-viewer
+        ref={ref}
+        auto-rotate
+        camera-controls
+        style={{width:"100%",height:"100%",background:"#0a1a0c"}}
+      />
+      <div style={{position:"absolute",top:8,left:8,background:"rgba(0,0,0,.5)",borderRadius:6,padding:"3px 8px",fontSize:10,color:"white",letterSpacing:1}}>3D GREEN · DRAG TO ROTATE</div>
     </div>
   );
 }
