@@ -2962,6 +2962,45 @@ function GreenReader(){
     setAnalyzing(true);setError(null);
     try {
       const base64=photo.split(",")[1];
+
+      // Load global feedback to improve accuracy
+      let feedbackContext="";
+      try {
+        const fbSnap=await getDoc(doc(db,"dtg_data","greenFeedback"));
+        if(fbSnap.exists()){
+          const entries=fbSnap.data().entries||[];
+          const recent=entries.slice(0,30);
+          const inaccurate=recent.filter(e=>!e.accurate);
+          if(inaccurate.length>0){
+            const count=cat=>inaccurate.filter(e=>e.category===cat).length;
+            const parts=[];
+            const threshold=2;
+            if(count("Break direction was opposite")>=threshold)
+              parts.push("⚠️ Users frequently report break direction is OPPOSITE to prediction — seriously reconsider the break direction.");
+            if(count("Break was more severe than shown")>=threshold)
+              parts.push("⚠️ Users say break is consistently UNDERESTIMATED — predict significantly more break than you initially see.");
+            if(count("Break was less severe than shown")>=threshold)
+              parts.push("⚠️ Users say break is consistently OVERESTIMATED — be more conservative, less break than it looks.");
+            if(count("Ball broke late (near hole)")>=threshold)
+              parts.push("⚠️ Ball tends to break more near the hole — weight the break toward the end of the path.");
+            if(count("Ball broke early (near ball)")>=threshold)
+              parts.push("⚠️ Ball tends to break more near the ball — weight the break toward the start of the path.");
+            if(count("Uphill / downhill was wrong")>=threshold)
+              parts.push("⚠️ Uphill/downhill direction is frequently misread — reanalyze the slope carefully.");
+            if(count("Green speed tip was too slow")>=threshold)
+              parts.push("⚠️ Greens play faster than they look — recommend firmer stroke in summary.");
+            if(count("Green speed tip was too fast")>=threshold)
+              parts.push("⚠️ Greens play slower than they look — recommend softer stroke in summary.");
+            if(count("No break — it was straight")>=threshold)
+              parts.push("⚠️ These greens tend to be flatter than they appear — consider a straighter path.");
+            if(parts.length>0) feedbackContext="\n\nCRITICAL: Learning from "+inaccurate.length+" user corrections:\n"+parts.join("\n");
+          }
+          const accurate=recent.filter(e=>e.accurate).length;
+          const total=recent.length;
+          if(total>5) feedbackContext+="\n("+accurate+"/"+total+" recent reads rated accurate by users)";
+        }
+      } catch(e){console.log("Feedback load failed",e);}
+
       const response=await fetch("https://api.anthropic.com/v1/messages",{
         method:"POST",
         headers:{"Content-Type":"application/json","x-api-key":import.meta.env.VITE_ANTHROPIC_KEY,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
@@ -2971,7 +3010,7 @@ function GreenReader(){
           messages:[{role:"user",content:[
             {type:"image",source:{type:"base64",media_type:"image/jpeg",data:base64}},
             {type:"text",text:`You are an expert golf green reader. Analyze this putting green photo taken from behind the ball toward the hole.
-Putt: ${puttDist?puttDist+" feet":"unknown distance"}. Green speed: ${greenSpeed==="slow"?"Slow (stimp 7-8)":greenSpeed==="medium"?"Medium (stimp 9-10)":greenSpeed==="fast"?"Fast (stimp 11-12)":"Tour (stimp 13+)"}.
+Putt: ${puttDist?puttDist+" feet":"unknown distance"}. Green speed: ${greenSpeed==="slow"?"Slow (stimp 7-8)":greenSpeed==="medium"?"Medium (stimp 9-10)":greenSpeed==="fast"?"Fast (stimp 11-12)":"Tour (stimp 13+)"}.${feedbackContext}
 Respond ONLY with JSON no markdown:
 {"pathPoints":[{"x":50,"y":90},{"x":48,"y":70},{"x":45,"y":50},{"x":46,"y":30},{"x":50,"y":10}],"break":"left","severity":4,"uphill":false,"summary":"One sentence caddie read with speed tip","slopeGrid":[[0.1,0.2,0.3,0.4,0.3,0.2,0.1,0.1],[0.2,0.3,0.5,0.5,0.4,0.3,0.2,0.1],[0.3,0.4,0.6,0.7,0.5,0.4,0.3,0.2],[0.2,0.4,0.5,0.6,0.5,0.4,0.2,0.1],[0.2,0.3,0.4,0.5,0.4,0.3,0.2,0.1],[0.1,0.2,0.3,0.4,0.3,0.2,0.1,0.1],[0.1,0.1,0.2,0.3,0.2,0.1,0.1,0.1],[0.1,0.1,0.1,0.2,0.1,0.1,0.1,0.1]]}
 pathPoints: x,y as % (0-100). Start ~x:50,y:90 (ball). End ~x:50,y:10 (hole). Curve shows actual ball path.
@@ -3096,9 +3135,92 @@ slopeGrid: 8x8 grid 0.0-1.0. Row 0=top, row 7=bottom. Col 0=left, col 7=right. 0
             <div style={{fontSize:10,color:"#8a9e8a",letterSpacing:2,textTransform:"uppercase",marginBottom:6}}>AI Read</div>
             <div style={{fontSize:14,color:"#f5f0e8",lineHeight:1.6}}>{result.summary}</div>
           </div>
-          <button onClick={reset} style={{width:"100%",background:"rgba(255,255,255,.05)",border:"1px solid rgba(42,107,52,.25)",borderRadius:10,color:"#8a9e8a",padding:"11px",fontSize:13,cursor:"pointer"}}>📸 Read Another Green</button>
+          {/* Feedback */}
+          <FeedbackWidget result={result} puttDist={puttDist} greenSpeed={greenSpeed}/>
+
+          <button onClick={reset} style={{width:"100%",background:"rgba(255,255,255,.05)",border:"1px solid rgba(42,107,52,.25)",borderRadius:10,color:"#8a9e8a",padding:"11px",fontSize:13,cursor:"pointer",marginTop:10}}>📸 Read Another Green</button>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── FEEDBACK WIDGET ──────────────────────────────────────────────────────────
+const FEEDBACK_OPTIONS = [
+  "Break direction was opposite",
+  "Break was more severe than shown",
+  "Break was less severe than shown",
+  "Ball broke late (near hole)",
+  "Ball broke early (near ball)",
+  "Uphill / downhill was wrong",
+  "Green speed tip was too slow",
+  "Green speed tip was too fast",
+  "Read was accurate overall",
+  "No break — it was straight",
+];
+
+function FeedbackWidget({result, puttDist, greenSpeed}){
+  const [selection, setSelection] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+  const [saving,    setSaving]    = useState(false);
+
+  async function submitFeedback(){
+    if(!selection)return;
+    setSaving(true);
+    try {
+      const isAccurate=selection==="Read was accurate overall";
+      const entry={
+        id:Date.now().toString(),
+        category:selection,
+        accurate:isAccurate,
+        predictedBreak:result.break,
+        predictedSeverity:result.severity,
+        predictedUphill:result.uphill,
+        puttDist,
+        greenSpeed,
+        timestamp:new Date().toISOString(),
+      };
+      const snap=await getDoc(doc(db,"dtg_data","greenFeedback"));
+      const existing=snap.exists()?(snap.data().entries||[]):[];
+      await setDoc(doc(db,"dtg_data","greenFeedback"),{
+        entries:[entry,...existing].slice(0,500),
+        updatedAt:new Date().toISOString(),
+      });
+      setSubmitted(true);
+    } catch(e){console.error(e);}
+    setSaving(false);
+  }
+
+  if(submitted) return(
+    <div style={{background:"rgba(42,107,52,.15)",border:"1px solid rgba(77,184,96,.25)",borderRadius:10,padding:"12px 14px",textAlign:"center",marginTop:10}}>
+      <div style={{fontSize:13,color:C.greenBright,fontWeight:600}}>Thanks! Helps the AI get smarter 🎯</div>
+    </div>
+  );
+
+  return(
+    <div style={{borderTop:"1px solid rgba(42,107,52,.15)",paddingTop:14,marginTop:4}}>
+      <div style={{fontSize:11,color:"#8a9e8a",letterSpacing:1,textTransform:"uppercase",marginBottom:10}}>How was the read?</div>
+      <div style={{position:"relative",marginBottom:10}}>
+        <select
+          value={selection}
+          onChange={e=>setSelection(e.target.value)}
+          style={{...iStyle(false),appearance:"none",cursor:"pointer",fontSize:13,color:selection?C.cream:C.creamMuted}}
+        >
+          <option value="">Select what happened…</option>
+          {FEEDBACK_OPTIONS.map(o=>(
+            <option key={o} value={o}>{o}</option>
+          ))}
+        </select>
+        <div style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",pointerEvents:"none",color:C.creamMuted,fontSize:12}}>▼</div>
+      </div>
+      <button
+        className="bh"
+        onClick={submitFeedback}
+        disabled={!selection||saving}
+        style={{width:"100%",background:selection?`linear-gradient(135deg,${C.gold},${C.goldDim})`:"rgba(60,60,60,.3)",border:"none",borderRadius:10,color:selection?"#0a1a0c":C.creamMuted,padding:"11px",fontSize:13,fontWeight:700,cursor:selection?"pointer":"not-allowed",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}
+      >
+        {saving?<><Spinner/>Saving…</>:"Submit Feedback"}
+      </button>
     </div>
   );
 }
