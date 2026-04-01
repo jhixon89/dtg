@@ -711,333 +711,321 @@ function FeaturedPhotoUploader({photos, onChange}){
 
 // ─── COURSE PROFILE VIEW ──────────────────────────────────────────────────────
 function CourseProfile({course, currentUser, onBack, onAddCommunityPhoto}){
-  const [activeTab,   setActiveTab]   = useState("photos");
-  const [imgFull,     setImgFull]     = useState(null);
-  const [uploading,   setUploading]   = useState(false);
-  const fileRef=useRef(null);
+  const [activeHole, setActiveHole] = useState(0); // 0 = overview, 1-18 = hole
+  const [viewMode,   setViewMode]   = useState("earth"); // earth | green
+  const scrollRef = useRef(null);
 
-  const allPhotos=[...(course.featuredPhotos||[]),...(course.communityPhotos||[]).map(p=>p.photo)];
-  const totalPar=(course.pars||[]).reduce((s,p)=>s+(+p||0),0);
+  const holes = course.holeData || Array.from({length:course.holes||18},(_,i)=>({
+    holeNum:i+1,earthImage:null,greenImage:null,description:"",photos:[],greenModel:null
+  }));
 
-  async function handleUserPhoto(e){
-    const f=e.target.files[0];if(!f)return;
-    setUploading(true);
-    const photo=await resizeImage(f,900,0.82);
-    await onAddCommunityPhoto(course.id,{uid:currentUser.uid,displayName:currentUser.displayName||"",photo,addedAt:new Date().toISOString()});
-    setUploading(false);
-    e.target.value="";
+  const totalPhotos=(course.featuredPhotos||[]).length+(course.communityPhotos||[]).length;
+
+  // If viewing a specific hole — full screen TikTok style
+  if(activeHole>0){
+    const holeIdx=activeHole-1;
+    const hole=holes[holeIdx];
+    const par=course.pars?.[holeIdx]||4;
+    const activeImg=viewMode==="green"&&hole.greenImage?hole.greenImage:hole.earthImage;
+    const hasGreen=!!hole.greenImage;
+    const hasEarth=!!hole.earthImage;
+
+    return(
+      <div style={{position:"fixed",inset:0,zIndex:200,background:"#000",fontFamily:"'DM Sans',sans-serif",overflow:"hidden"}}>
+
+        {/* Full screen image */}
+        {activeImg?(
+          <img src={activeImg} alt={`Hole ${hole.holeNum}`} style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
+        ):(
+          <div style={{width:"100%",height:"100%",background:"linear-gradient(180deg,#0a1a0c,#1e4d26)",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12}}>
+            <div style={{fontSize:64}}>⛳</div>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:18,color:"rgba(255,255,255,.4)"}}>No image uploaded yet</div>
+          </div>
+        )}
+
+        {/* Dark gradient overlay at bottom */}
+        <div style={{position:"absolute",bottom:0,left:0,right:0,height:"45%",background:"linear-gradient(to top,rgba(0,0,0,.92) 0%,rgba(0,0,0,.6) 60%,transparent 100%)",pointerEvents:"none"}}/>
+
+        {/* Top bar — back + hole nav */}
+        <div style={{position:"absolute",top:0,left:0,right:0,padding:"16px 16px 0",display:"flex",alignItems:"center",justifyContent:"space-between",background:"linear-gradient(to bottom,rgba(0,0,0,.7),transparent)"}}>
+          <button onClick={()=>setActiveHole(0)} style={{background:"rgba(0,0,0,.5)",border:"none",borderRadius:20,color:"white",padding:"8px 14px",fontSize:13,cursor:"pointer",backdropFilter:"blur(4px)"}}>‹ Back</button>
+
+          {/* Hole dots */}
+          <div style={{display:"flex",gap:4,flexWrap:"wrap",justifyContent:"center",maxWidth:"60%"}}>
+            {holes.map((_,i)=>(
+              <button key={i} onClick={()=>setActiveHole(i+1)} style={{width:20,height:20,borderRadius:"50%",border:"none",cursor:"pointer",fontSize:8,fontWeight:700,background:activeHole===i+1?"#c9a227":"rgba(255,255,255,.3)",color:activeHole===i+1?"#0a1a0c":"white",transition:"all .15s"}}>
+                {i+1}
+              </button>
+            ))}
+          </div>
+
+          {/* View toggle */}
+          {(hasEarth||hasGreen)&&(
+            <div style={{display:"flex",background:"rgba(0,0,0,.5)",borderRadius:20,overflow:"hidden",backdropFilter:"blur(4px)"}}>
+              {hasEarth&&<button onClick={()=>setViewMode("earth")} style={{padding:"7px 12px",border:"none",cursor:"pointer",fontSize:11,fontWeight:600,background:viewMode==="earth"?"rgba(201,162,39,.8)":"transparent",color:"white"}}>🛰</button>}
+              {hasGreen&&<button onClick={()=>setViewMode("green")} style={{padding:"7px 12px",border:"none",cursor:"pointer",fontSize:11,fontWeight:600,background:viewMode==="green"?"rgba(42,107,52,.8)":"transparent",color:"white"}}>🟢</button>}
+            </div>
+          )}
+        </div>
+
+        {/* Prev / Next swipe arrows */}
+        <button onClick={()=>setActiveHole(h=>Math.max(1,h-1))} disabled={activeHole<=1} style={{position:"absolute",left:8,top:"50%",transform:"translateY(-50%)",background:"rgba(0,0,0,.4)",border:"none",borderRadius:"50%",width:40,height:40,color:"white",fontSize:22,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",opacity:activeHole<=1?0.2:0.8}}>‹</button>
+        <button onClick={()=>setActiveHole(h=>Math.min(course.holes||18,h+1))} disabled={activeHole>=(course.holes||18)} style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",background:"rgba(0,0,0,.4)",border:"none",borderRadius:"50%",width:40,height:40,color:"white",fontSize:22,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",opacity:activeHole>=(course.holes||18)?0.2:0.8}}>›</button>
+
+        {/* Bottom banner */}
+        <div style={{position:"absolute",bottom:0,left:0,right:0,padding:"16px 20px 36px",pointerEvents:"none"}}>
+          <div style={{display:"flex",alignItems:"flex-end",justifyContent:"space-between",marginBottom:8}}>
+            {/* DTG logo area */}
+            <div style={{pointerEvents:"all"}}>
+              <div style={{fontFamily:"'Cinzel',serif",fontSize:13,fontWeight:700,color:"#c9a227",letterSpacing:2}}>DTG</div>
+              <div style={{fontSize:10,color:"rgba(255,255,255,.5)",letterSpacing:1}}>{course.city}, {course.state}</div>
+            </div>
+            {/* Hole + Par */}
+            <div style={{textAlign:"right"}}>
+              <div style={{fontFamily:"'Cinzel',serif",fontSize:32,fontWeight:700,color:"white",lineHeight:1}}>#{hole.holeNum}</div>
+              <div style={{fontFamily:"'Cinzel',serif",fontSize:14,color:"rgba(255,255,255,.7)"}}>Par {par}</div>
+            </div>
+          </div>
+          {/* Course name */}
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:16,fontWeight:700,color:"white",marginBottom:6}}>{course.name}</div>
+          {/* Description */}
+          {hole.description&&(
+            <div style={{fontSize:13,color:"rgba(255,255,255,.85)",lineHeight:1.6,background:"rgba(0,0,0,.3)",borderRadius:8,padding:"8px 12px",backdropFilter:"blur(4px)"}}>
+              {hole.description}
+            </div>
+          )}
+          {/* 3D model button */}
+          {hole.greenModel&&(
+            <button onClick={()=>{}} style={{marginTop:10,background:"rgba(201,162,39,.2)",border:"1px solid rgba(201,162,39,.4)",borderRadius:20,color:"#c9a227",padding:"7px 16px",fontSize:12,fontWeight:600,cursor:"pointer",pointerEvents:"all"}}>📦 View 3D Green</button>
+          )}
+        </div>
+      </div>
+    );
   }
+
+  // Overview — course card + hole grid
+  const heroPhoto=(course.featuredPhotos||[])[0]||(course.communityPhotos||[])[0]?.photo||null;
 
   return(
     <div style={{minHeight:"100vh",background:"#0a1a0c",fontFamily:"'DM Sans',sans-serif",color:C.cream}}>
       <style>{css}</style>
 
-      {imgFull&&(
-        <div onClick={()=>setImgFull(null)} style={{position:"fixed",inset:0,zIndex:500,background:"rgba(0,0,0,.95)",display:"flex",alignItems:"center",justifyContent:"center",padding:16,cursor:"pointer"}}>
-          <img src={imgFull} alt="full" style={{maxWidth:"100%",maxHeight:"90vh",objectFit:"contain",borderRadius:8}}/>
+      {/* Hero */}
+      <div style={{position:"relative",width:"100%",height:260,overflow:"hidden"}}>
+        {heroPhoto?(
+          <img src={heroPhoto} alt={course.name} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+        ):(
+          <div style={{width:"100%",height:"100%",background:"linear-gradient(135deg,#0a1a0c,#1e4d26)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:48}}>⛳</div>
+        )}
+        <div style={{position:"absolute",inset:0,background:"linear-gradient(to bottom,transparent 30%,rgba(0,0,0,.85))"}}/>
+        <button onClick={onBack} style={{position:"absolute",top:16,left:16,background:"rgba(0,0,0,.5)",border:"none",borderRadius:20,color:"white",padding:"8px 14px",fontSize:13,cursor:"pointer"}}>‹ Back</button>
+        <div style={{position:"absolute",bottom:16,left:16,right:16}}>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:22,fontWeight:700,color:"white"}}>{course.name}</div>
+          <div style={{fontSize:12,color:"rgba(255,255,255,.7)",marginTop:2}}>{course.city}, {course.state} · {course.holes} holes</div>
         </div>
-      )}
-
-      {/* Hero photo */}
-      {allPhotos.length>0?(
-        <div style={{position:"relative",width:"100%",height:220,overflow:"hidden"}}>
-          <img src={allPhotos[0]} alt={course.name} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
-          <div style={{position:"absolute",inset:0,background:"linear-gradient(to bottom,transparent 40%,rgba(0,0,0,.8))"}}/>
-          <div style={{position:"absolute",bottom:16,left:16,right:16}}>
-            <div style={{fontFamily:"'Cinzel',serif",fontSize:20,fontWeight:700,color:"white"}}>{course.name}</div>
-            <div style={{fontSize:12,color:"rgba(255,255,255,.7)",marginTop:2}}>{course.city}, {course.state} · {course.holes} holes</div>
-          </div>
-          <button onClick={onBack} style={{position:"absolute",top:16,left:16,background:"rgba(0,0,0,.5)",border:"none",borderRadius:20,color:"white",padding:"6px 12px",fontSize:12,cursor:"pointer"}}>← Back</button>
-        </div>
-      ):(
-        <div style={{background:"rgba(13,32,16,.9)",padding:"20px 16px"}}>
-          <button onClick={onBack} style={{background:"none",border:"none",color:C.creamMuted,fontSize:12,cursor:"pointer",marginBottom:12}}>← Back</button>
-          <div style={{fontFamily:"'Cinzel',serif",fontSize:20,fontWeight:700,color:C.cream}}>{course.name}</div>
-          <div style={{fontSize:12,color:C.creamMuted,marginTop:2}}>{course.city}, {course.state} · {course.holes} holes</div>
-        </div>
-      )}
-
-      <div style={{maxWidth:640,margin:"0 auto",padding:"16px"}}>
-        {/* Signature hole */}
-        {course.signatureHole&&(
-          <div style={{background:"linear-gradient(135deg,rgba(201,162,39,.1),rgba(26,77,36,.15))",border:"1px solid rgba(201,162,39,.25)",borderRadius:14,padding:"14px 16px",marginBottom:16,display:"flex",gap:12,alignItems:"flex-start"}}>
-            <span style={{fontSize:24,flexShrink:0}}>⭐</span>
-            <div>
-              <div style={{fontFamily:"'Cinzel',serif",fontSize:13,fontWeight:700,color:C.goldLight,marginBottom:3}}>Signature Hole — #{course.signatureHole}</div>
-              <div style={{fontSize:13,color:C.creamDim,lineHeight:1.6}}>{course.signatureHoleNote}</div>
-            </div>
-          </div>
-        )}
-
-        {/* Practice facility */}
-        {course.practiceRange&&(
-          <div style={{background:"rgba(13,32,16,.8)",border:"1px solid rgba(42,107,52,.2)",borderRadius:14,padding:"14px 16px",marginBottom:16}}>
-            <div style={{fontWeight:600,fontSize:13,color:C.cream,marginBottom:course.practiceNotes?6:0}}>🏌️ Practice Facility Available</div>
-            {course.practiceNotes&&<div style={{fontSize:12,color:C.creamMuted,lineHeight:1.6}}>{course.practiceNotes}</div>}
-          </div>
-        )}
-
-        {/* Tabs */}
-        <div style={{display:"flex",borderBottom:"1px solid rgba(42,107,52,.2)",marginBottom:20,overflowX:"auto"}}>
-          {["photos","holes","scorecard"].map(t=>(
-            <button key={t} onClick={()=>setActiveTab(t)} style={{padding:"10px 14px",background:"none",border:"none",cursor:"pointer",fontSize:13,fontWeight:600,color:activeTab===t?C.goldLight:C.creamMuted,borderBottom:activeTab===t?`2px solid ${C.gold}`:"2px solid transparent",whiteSpace:"nowrap",flexShrink:0}}>
-              {t==="photos"?"📸 Photos":t==="holes"?"⛳ Holes":"📋 Scorecard"}
-            </button>
-          ))}
-        </div>
-
-        {/* PHOTOS TAB */}
-        {activeTab==="photos"&&(
-          <div>
-            {/* Add photo button */}
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
-              <div style={{fontSize:12,color:C.creamMuted}}>{allPhotos.length} photo{allPhotos.length!==1?"s":""}</div>
-              <button className="bh" onClick={()=>fileRef.current?.click()} disabled={uploading} style={{background:`linear-gradient(135deg,${C.green},${C.greenLight})`,border:"none",borderRadius:9,color:C.cream,padding:"8px 14px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
-                {uploading?<><Spinner/>Uploading…</>:"📷 Add Your Photo"}
-              </button>
-              <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleUserPhoto}/>
-            </div>
-
-            {allPhotos.length===0&&(
-              <div style={{textAlign:"center",padding:"40px 20px",color:C.creamMuted}}>
-                <div style={{fontSize:36,marginBottom:10}}>📸</div>
-                <div style={{fontSize:14,marginBottom:6}}>No photos yet</div>
-                <div style={{fontSize:12}}>Be the first to add a photo from your round here</div>
-              </div>
-            )}
-
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-              {(course.featuredPhotos||[]).map((p,i)=>(
-                <div key={"f"+i} style={{position:"relative"}}>
-                  <img src={p} alt="" onClick={()=>setImgFull(p)} style={{width:"100%",aspectRatio:"4/3",objectFit:"cover",borderRadius:10,cursor:"pointer",display:"block"}}/>
-                  <div style={{position:"absolute",top:6,left:6,background:"rgba(201,162,39,.8)",borderRadius:4,padding:"2px 6px",fontSize:9,fontWeight:700,color:"#0a1a0c"}}>FEATURED</div>
-                </div>
-              ))}
-              {(course.communityPhotos||[]).map((p,i)=>(
-                <div key={"c"+i} style={{position:"relative"}}>
-                  <img src={p.photo} alt="" onClick={()=>setImgFull(p.photo)} style={{width:"100%",aspectRatio:"4/3",objectFit:"cover",borderRadius:10,cursor:"pointer",display:"block"}}/>
-                  <div style={{position:"absolute",bottom:6,left:6,fontSize:10,color:"white",background:"rgba(0,0,0,.5)",borderRadius:4,padding:"2px 6px"}}>{p.displayName?.split(" ")[0]}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* HOLES TAB */}
-        {activeTab==="holes"&&(
-          <div>
-            {(course.holeData||[]).length===0&&<Empty msg="Hole details not added yet"/>}
-            {(course.holeData||Array.from({length:course.holes||18},(_,i)=>({holeNum:i+1,photos:[],greenModel:null}))).map((hole,i)=>(
-              <HoleProfileCard key={i} hole={hole} par={course.pars?.[i]||4}/>
-            ))}
-          </div>
-        )}
-
-        {/* SCORECARD TAB */}
-        {activeTab==="scorecard"&&(
-          <div style={{overflowX:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:360}}>
-              <thead>
-                <tr style={{background:"rgba(13,32,16,.8)"}}>
-                  <th style={{padding:"8px",color:C.creamMuted,textAlign:"center",fontWeight:600}}>Hole</th>
-                  <th style={{padding:"8px",color:C.creamMuted,textAlign:"center",fontWeight:600}}>Par</th>
-                  <th style={{padding:"8px",color:C.creamMuted,textAlign:"center",fontWeight:600}}>HCP</th>
-                  {(course.tees||[]).map((t,ti)=>(
-                    <th key={ti} style={{padding:"8px",textAlign:"center",fontWeight:600}}>
-                      <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
-                        <div style={{width:10,height:10,borderRadius:"50%",background:t.color,border:"1px solid rgba(255,255,255,.2)"}}/>
-                        <span style={{color:C.creamMuted}}>{t.name}</span>
-                      </div>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {Array.from({length:course.holes||18},(_,i)=>(
-                  <tr key={i} style={{borderTop:"1px solid rgba(42,107,52,.1)",background:i%2===0?"transparent":"rgba(13,32,16,.3)"}}>
-                    <td style={{padding:"7px 8px",textAlign:"center",fontFamily:"'Cinzel',serif",fontWeight:700,color:C.goldLight}}>{i+1}</td>
-                    <td style={{padding:"7px 8px",textAlign:"center",color:C.creamDim,fontWeight:600}}>{course.pars?.[i]||4}</td>
-                    <td style={{padding:"7px 8px",textAlign:"center",color:C.creamMuted}}>{course.handicaps?.[i]||"—"}</td>
-                    {(course.tees||[]).map((t,ti)=>(
-                      <td key={ti} style={{padding:"7px 8px",textAlign:"center",color:C.creamDim}}>{t.yardages?.[i]||"—"}</td>
-                    ))}
-                  </tr>
-                ))}
-                {/* Totals */}
-                <tr style={{borderTop:"2px solid rgba(42,107,52,.3)",background:"rgba(13,32,16,.8)"}}>
-                  <td style={{padding:"8px",textAlign:"center",color:C.creamMuted,fontSize:10,letterSpacing:1}}>TOTAL</td>
-                  <td style={{padding:"8px",textAlign:"center",fontFamily:"'Cinzel',serif",fontWeight:700,color:C.goldLight}}>{totalPar}</td>
-                  <td/>
-                  {(course.tees||[]).map((t,ti)=>(
-                    <td key={ti} style={{padding:"8px",textAlign:"center",fontFamily:"'Cinzel',serif",fontWeight:700,color:C.goldLight}}>
-                      {(t.yardages||[]).reduce((s,y)=>s+(+y||0),0)||"—"}
-                    </td>
-                  ))}
-                </tr>
-              </tbody>
-            </table>
-
-            {/* Ratings per tee */}
-            <div style={{marginTop:16,display:"flex",gap:10,flexWrap:"wrap"}}>
-              {(course.tees||[]).filter(t=>t.rating||t.slope).map((t,ti)=>(
-                <div key={ti} style={{background:"rgba(13,32,16,.8)",border:"1px solid rgba(42,107,52,.2)",borderRadius:10,padding:"10px 14px",display:"flex",alignItems:"center",gap:8}}>
-                  <div style={{width:12,height:12,borderRadius:"50%",background:t.color,border:"1px solid rgba(255,255,255,.2)"}}/>
-                  <div>
-                    <div style={{fontSize:11,color:C.creamMuted}}>{t.name} Tees</div>
-                    <div style={{fontSize:12,color:C.cream,fontWeight:600}}>Rating {t.rating} · Slope {t.slope}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
-    </div>
-  );
-}
 
-
-
-// ─── HOLE PROFILE CARD (public view) ─────────────────────────────────────────
-function HoleProfileCard({hole, par}){
-  const [expanded,  setExpanded]  = useState(false);
-  const [imgFull,   setImgFull]   = useState(null);
-  const [show3D,    setShow3D]    = useState(false);
-
-  const photoCount=(hole.photos||[]).length;
-  const hasModel=!!hole.greenModel;
-
-  return(
-    <div style={{border:"1px solid rgba(42,107,52,.18)",borderRadius:14,marginBottom:10,overflow:"hidden"}}>
-      <button onClick={()=>setExpanded(v=>!v)} style={{width:"100%",background:"rgba(13,32,16,.7)",border:"none",cursor:"pointer",padding:"14px 16px",display:"flex",alignItems:"center",gap:12,textAlign:"left"}}>
-        <div style={{width:40,height:40,borderRadius:10,background:`linear-gradient(135deg,${C.green},${C.greenLight})`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Cinzel',serif",fontSize:16,fontWeight:700,color:C.cream,flexShrink:0}}>{hole.holeNum}</div>
-        <div style={{flex:1}}>
-          <div style={{fontFamily:"'Cinzel',serif",fontSize:15,fontWeight:700,color:C.cream}}>Hole {hole.holeNum}</div>
-          <div style={{fontSize:12,color:C.creamMuted,marginTop:2}}>Par {par}</div>
+      <div style={{padding:"16px"}}>
+        {/* Quick info */}
+        <div style={{display:"flex",gap:10,marginBottom:20,flexWrap:"wrap"}}>
+          {course.practiceRange&&<div style={{background:"rgba(42,107,52,.2)",border:"1px solid rgba(42,107,52,.3)",borderRadius:20,padding:"5px 12px",fontSize:12,color:C.greenBright}}>🏌️ Practice Range</div>}
+          {course.signatureHole&&<div style={{background:"rgba(201,162,39,.1)",border:"1px solid rgba(201,162,39,.2)",borderRadius:20,padding:"5px 12px",fontSize:12,color:C.goldLight}}>⭐ Hole #{course.signatureHole}</div>}
+          {totalPhotos>0&&<div style={{background:"rgba(42,107,52,.15)",border:"1px solid rgba(42,107,52,.2)",borderRadius:20,padding:"5px 12px",fontSize:12,color:C.creamMuted}}>📸 {totalPhotos} photos</div>}
         </div>
-        <div style={{display:"flex",gap:6}}>
-          {photoCount>0&&<span style={{fontSize:11,background:"rgba(42,107,52,.2)",borderRadius:6,padding:"3px 8px",color:C.greenBright}}>📸 {photoCount}</span>}
-          {hasModel&&<span style={{fontSize:11,background:"rgba(201,162,39,.15)",borderRadius:6,padding:"3px 8px",color:C.goldLight}}>3D</span>}
+
+        {/* Hole grid — tap to open full screen */}
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:15,fontWeight:700,color:C.cream,marginBottom:14}}>⛳ All {course.holes||18} Holes</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:24}}>
+          {holes.map((hole,i)=>{
+            const par=course.pars?.[i]||4;
+            const img=hole.earthImage||hole.greenImage||null;
+            const isSig=course.signatureHole===(i+1);
+            return(
+              <div key={i} onClick={()=>setActiveHole(i+1)} style={{position:"relative",borderRadius:14,overflow:"hidden",cursor:"pointer",aspectRatio:"9/16",background:"rgba(13,32,16,.8)",border:isSig?"1px solid rgba(201,162,39,.4)":"1px solid rgba(42,107,52,.15)"}}>
+                {img?(
+                  <img src={img} alt={`Hole ${i+1}`} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                ):(
+                  <div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:28}}>⛳</div>
+                )}
+                <div style={{position:"absolute",inset:0,background:"linear-gradient(to top,rgba(0,0,0,.8) 0%,transparent 50%)"}}/>
+                {isSig&&<div style={{position:"absolute",top:8,left:8,background:"rgba(201,162,39,.8)",borderRadius:4,padding:"2px 6px",fontSize:9,fontWeight:700,color:"#0a1a0c"}}>⭐ SIGNATURE</div>}
+                <div style={{position:"absolute",bottom:10,left:10,right:10}}>
+                  <div style={{fontFamily:"'Cinzel',serif",fontSize:18,fontWeight:700,color:"white"}}>#{i+1}</div>
+                  <div style={{fontSize:11,color:"rgba(255,255,255,.7)"}}>Par {par}</div>
+                  {hole.description&&<div style={{fontSize:10,color:"rgba(255,255,255,.6)",marginTop:3,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{hole.description}</div>}
+                </div>
+                <div style={{position:"absolute",top:8,right:8,display:"flex",gap:4}}>
+                  {hole.earthImage&&<div style={{background:"rgba(0,0,0,.5)",borderRadius:4,padding:"2px 5px",fontSize:9,color:"white"}}>🛰</div>}
+                  {hole.greenImage&&<div style={{background:"rgba(0,0,0,.5)",borderRadius:4,padding:"2px 5px",fontSize:9,color:"white"}}>🟢</div>}
+                  {hole.greenModel&&<div style={{background:"rgba(0,0,0,.5)",borderRadius:4,padding:"2px 5px",fontSize:9,color:"#c9a227"}}>3D</div>}
+                </div>
+              </div>
+            );
+          })}
         </div>
-        <span style={{color:C.creamMuted}}>{expanded?"▲":"▼"}</span>
-      </button>
 
-      {expanded&&(
-        <div style={{padding:"14px 14px",background:"rgba(5,14,6,.4)"}}>
-
-          {/* Photos */}
-          {photoCount>0&&(
-            <>
-              {imgFull&&<div onClick={()=>setImgFull(null)} style={{position:"fixed",inset:0,zIndex:500,background:"rgba(0,0,0,.95)",display:"flex",alignItems:"center",justifyContent:"center",padding:16,cursor:"pointer"}}><img src={imgFull} alt="" style={{maxWidth:"100%",maxHeight:"90vh",objectFit:"contain",borderRadius:8}}/></div>}
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:14}}>
-                {(hole.photos||[]).map((p,i)=>(
-                  <img key={i} src={p} alt={`Hole ${hole.holeNum}`} onClick={()=>setImgFull(p)} style={{width:"100%",aspectRatio:"1/1",objectFit:"cover",borderRadius:8,cursor:"pointer"}}/>
+        {/* Scorecard */}
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:15,fontWeight:700,color:C.cream,marginBottom:14}}>📋 Scorecard</div>
+        <div style={{overflowX:"auto",marginBottom:20}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:300}}>
+            <thead>
+              <tr style={{background:"rgba(13,32,16,.8)"}}>
+                <th style={{padding:"8px",color:C.creamMuted,textAlign:"center"}}>Hole</th>
+                <th style={{padding:"8px",color:C.creamMuted,textAlign:"center"}}>Par</th>
+                <th style={{padding:"8px",color:C.creamMuted,textAlign:"center"}}>HCP</th>
+                {(course.tees||[]).map((t,ti)=>(
+                  <th key={ti} style={{padding:"8px",textAlign:"center"}}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:3}}>
+                      <div style={{width:8,height:8,borderRadius:"50%",background:t.color}}/>
+                      <span style={{color:C.creamMuted,fontSize:10}}>{t.name}</span>
+                    </div>
+                  </th>
                 ))}
-              </div>
-            </>
-          )}
-
-          {photoCount===0&&!hasModel&&(
-            <div style={{textAlign:"center",padding:"20px",color:C.creamMuted,fontSize:12}}>No photos yet for this hole</div>
-          )}
-
-          {/* 3D Green Model */}
-          {hasModel&&(
-            <div>
-              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-                <div style={{fontSize:11,color:C.goldLight,fontWeight:600,letterSpacing:1}}>📦 3D GREEN MODEL</div>
-                <button onClick={()=>setShow3D(v=>!v)} style={{background:`linear-gradient(135deg,${C.gold},${C.goldDim})`,border:"none",borderRadius:8,color:"#0a1a0c",padding:"6px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>{show3D?"Hide 3D":"View in 3D"}</button>
-              </div>
-              {show3D&&<ModelViewerEmbed glbData={hole.greenModel} label={`Hole ${hole.holeNum} Green`}/>}
-            </div>
-          )}
+              </tr>
+            </thead>
+            <tbody>
+              {Array.from({length:course.holes||18},(_,i)=>(
+                <tr key={i} style={{borderTop:"1px solid rgba(42,107,52,.1)",background:i%2===0?"transparent":"rgba(13,32,16,.3)"}}>
+                  <td style={{padding:"7px 8px",textAlign:"center",fontFamily:"'Cinzel',serif",fontWeight:700,color:C.goldLight}}>{i+1}</td>
+                  <td style={{padding:"7px 8px",textAlign:"center",color:C.creamDim,fontWeight:600}}>{course.pars?.[i]||4}</td>
+                  <td style={{padding:"7px 8px",textAlign:"center",color:C.creamMuted}}>{course.handicaps?.[i]||"—"}</td>
+                  {(course.tees||[]).map((t,ti)=>(
+                    <td key={ti} style={{padding:"7px 8px",textAlign:"center",color:C.creamDim}}>{t.yardages?.[i]||"—"}</td>
+                  ))}
+                </tr>
+              ))}
+              <tr style={{borderTop:"2px solid rgba(42,107,52,.3)",background:"rgba(13,32,16,.8)"}}>
+                <td style={{padding:"8px",textAlign:"center",color:C.creamMuted,fontSize:10,letterSpacing:1}}>TOTAL</td>
+                <td style={{padding:"8px",textAlign:"center",fontFamily:"'Cinzel',serif",fontWeight:700,color:C.goldLight}}>{(course.pars||[]).reduce((s,p)=>s+(+p||0),0)}</td>
+                <td/>
+                {(course.tees||[]).map((t,ti)=>(
+                  <td key={ti} style={{padding:"8px",textAlign:"center",fontFamily:"'Cinzel',serif",fontWeight:700,color:C.goldLight}}>
+                    {(t.yardages||[]).reduce((s,y)=>s+(+y||0),0)||"—"}
+                  </td>
+                ))}
+              </tr>
+            </tbody>
+          </table>
         </div>
-      )}
+      </div>
     </div>
   );
 }
 
 // ─── HOLE DATA EDITOR (Admin) ─────────────────────────────────────────────────
 function HoleDataEditor({holeNum, data, onChange, par}){
-  const [expanded, setExpanded] = useState(false);
-  const photoRef = useRef(null);
+  const [expanded,  setExpanded]  = useState(false);
+  const earthRef = useRef(null);
+  const greenRef = useRef(null);
   const glbRef   = useRef(null);
 
-  async function handlePhotos(e){
-    const files=Array.from(e.target.files);
-    const resized=await Promise.all(files.map(f=>resizeImage(f,900,0.82)));
-    onChange({...data,photos:[...(data.photos||[]),...resized]});
+  async function handleEarth(e){
+    const f=e.target.files[0];if(!f)return;
+    onChange({...data,earthImage:await resizeImage(f,1200,0.85)});
     e.target.value="";
   }
-
+  async function handleGreenImg(e){
+    const f=e.target.files[0];if(!f)return;
+    onChange({...data,greenImage:await resizeImage(f,1200,0.85)});
+    e.target.value="";
+  }
   async function handleGlb(e){
     const f=e.target.files[0];if(!f)return;
-    // Read GLB as base64
     const reader=new FileReader();
-    reader.onload=ev=>{onChange({...data,greenModel:ev.target.result});};
+    reader.onload=ev=>onChange({...data,greenModel:ev.target.result});
     reader.readAsDataURL(f);
     e.target.value="";
   }
 
-  function removePhoto(i){onChange({...data,photos:(data.photos||[]).filter((_,pi)=>pi!==i)});}
-  function removeModel(){onChange({...data,greenModel:null});}
-
-  const photoCount=(data.photos||[]).length;
+  const hasEarth=!!data.earthImage;
+  const hasGreen=!!data.greenImage;
   const hasModel=!!data.greenModel;
+  const hasDesc=!!(data.description||"").trim();
 
   return(
     <div style={{border:"1px solid rgba(42,107,52,.15)",borderRadius:12,marginBottom:8,overflow:"hidden"}}>
-      <button onClick={()=>setExpanded(v=>!v)} style={{width:"100%",background:"rgba(5,14,6,.6)",border:"none",cursor:"pointer",padding:"12px 14px",display:"flex",alignItems:"center",gap:10,textAlign:"left"}}>
-        <div style={{width:28,height:28,borderRadius:7,background:`linear-gradient(135deg,${C.green},${C.greenLight})`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Cinzel',serif",fontSize:12,fontWeight:700,color:C.cream,flexShrink:0}}>
-          {holeNum}
-        </div>
+      <button onClick={()=>setExpanded(v=>!v)} style={{width:"100%",background:"rgba(5,14,6,.6)",border:"none",cursor:"pointer",padding:"13px 14px",display:"flex",alignItems:"center",gap:10,textAlign:"left"}}>
+        <div style={{width:32,height:32,borderRadius:8,background:`linear-gradient(135deg,${C.green},${C.greenLight})`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Cinzel',serif",fontSize:13,fontWeight:700,color:C.cream,flexShrink:0}}>{holeNum}</div>
         <div style={{flex:1}}>
           <span style={{fontSize:13,fontWeight:600,color:C.cream}}>Hole {holeNum}</span>
           <span style={{fontSize:11,color:C.creamMuted,marginLeft:8}}>Par {par}</span>
         </div>
-        <div style={{display:"flex",gap:6,alignItems:"center"}}>
-          {photoCount>0&&<span style={{fontSize:10,background:"rgba(42,107,52,.3)",borderRadius:4,padding:"2px 6px",color:C.greenBright}}>📸 {photoCount}</span>}
-          {hasModel&&<span style={{fontSize:10,background:"rgba(201,162,39,.2)",borderRadius:4,padding:"2px 6px",color:C.goldLight}}>3D ✓</span>}
-          <span style={{color:C.creamMuted,fontSize:14}}>{expanded?"▲":"▼"}</span>
+        <div style={{display:"flex",gap:5,alignItems:"center"}}>
+          {hasEarth&&<span style={{fontSize:9,background:"rgba(26,107,52,.3)",borderRadius:4,padding:"2px 5px",color:C.greenBright}}>🛰</span>}
+          {hasGreen&&<span style={{fontSize:9,background:"rgba(42,107,52,.3)",borderRadius:4,padding:"2px 5px",color:C.greenBright}}>🟢</span>}
+          {hasModel&&<span style={{fontSize:9,background:"rgba(201,162,39,.2)",borderRadius:4,padding:"2px 5px",color:C.goldLight}}>3D</span>}
+          {hasDesc&&<span style={{fontSize:9,background:"rgba(42,107,52,.2)",borderRadius:4,padding:"2px 5px",color:C.creamDim}}>📝</span>}
         </div>
+        <span style={{color:C.creamMuted,fontSize:12}}>{expanded?"▲":"▼"}</span>
       </button>
 
       {expanded&&(
-        <div style={{padding:"14px 14px",background:"rgba(13,32,16,.6)"}}>
-          {/* Hole photos */}
-          <div style={{marginBottom:14}}>
-            <div style={{fontSize:10,color:C.creamMuted,letterSpacing:2,textTransform:"uppercase",marginBottom:8}}>Hole Photos</div>
-            <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:8}}>
-              {(data.photos||[]).map((p,i)=>(
-                <div key={i} style={{position:"relative",width:72,height:72}}>
-                  <img src={p} alt="" style={{width:72,height:72,objectFit:"cover",borderRadius:8}}/>
-                  <button onClick={()=>removePhoto(i)} style={{position:"absolute",top:-5,right:-5,width:18,height:18,borderRadius:"50%",background:"rgba(192,64,64,.9)",border:"none",color:"white",fontSize:10,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
-                </div>
-              ))}
-              <button onClick={()=>photoRef.current?.click()} style={{width:72,height:72,borderRadius:8,background:"rgba(5,14,6,.7)",border:"1px dashed rgba(42,107,52,.4)",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,color:C.creamMuted,fontSize:10}}>
-                <span style={{fontSize:20}}>+</span>
-                Photo
-              </button>
-            </div>
-            <input ref={photoRef} type="file" accept="image/*" multiple style={{display:"none"}} onChange={handlePhotos}/>
-          </div>
+        <div style={{padding:"16px 14px",background:"rgba(13,32,16,.6)",display:"flex",flexDirection:"column",gap:16}}>
 
-          {/* 3D Green Model */}
+          {/* Google Earth Image */}
           <div>
-            <div style={{fontSize:10,color:C.creamMuted,letterSpacing:2,textTransform:"uppercase",marginBottom:8}}>3D Green Model (Polycam GLB)</div>
-            {hasModel?(
-              <div style={{marginBottom:8}}>
-                <ModelViewerEmbed glbData={data.greenModel} label={`Hole ${holeNum} Green`}/>
-                <button onClick={removeModel} style={{marginTop:8,background:"rgba(192,64,64,.15)",border:"1px solid rgba(192,64,64,.3)",borderRadius:7,color:"#e07070",padding:"6px 12px",fontSize:11,cursor:"pointer"}}>Remove 3D Model</button>
+            <div style={{fontSize:10,color:C.creamMuted,letterSpacing:2,textTransform:"uppercase",marginBottom:8}}>🛰 Google Earth / Overhead Image</div>
+            {hasEarth?(
+              <div style={{position:"relative"}}>
+                <img src={data.earthImage} alt="" style={{width:"100%",aspectRatio:"9/16",objectFit:"cover",borderRadius:10,display:"block"}}/>
+                <button onClick={()=>onChange({...data,earthImage:null})} style={{position:"absolute",top:6,right:6,width:22,height:22,borderRadius:"50%",background:"rgba(192,64,64,.9)",border:"none",color:"white",fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
               </div>
             ):(
-              <button onClick={()=>glbRef.current?.click()} style={{width:"100%",background:"rgba(5,14,6,.7)",border:"1px dashed rgba(201,162,39,.3)",borderRadius:10,color:C.goldLight,padding:"14px",fontSize:12,cursor:"pointer",textAlign:"center"}}>
-                <div style={{fontSize:20,marginBottom:4}}>📦</div>
-                <div style={{fontWeight:600}}>Upload Polycam GLB</div>
-                <div style={{fontSize:10,color:C.creamMuted,marginTop:2}}>Export from Polycam as GLB/GLTF</div>
+              <button onClick={()=>earthRef.current?.click()} style={{width:"100%",aspectRatio:"9/16",maxHeight:200,background:"rgba(5,14,6,.7)",border:"1px dashed rgba(42,107,52,.4)",borderRadius:10,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:6,color:C.creamMuted}}>
+                <div style={{fontSize:28}}>🛰</div>
+                <div style={{fontSize:12,fontWeight:600,color:C.creamDim}}>Upload Overhead Image</div>
+                <div style={{fontSize:10}}>Google Earth screenshot, portrait orientation</div>
+              </button>
+            )}
+            <input ref={earthRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleEarth}/>
+          </div>
+
+          {/* 3D Green Image */}
+          <div>
+            <div style={{fontSize:10,color:C.creamMuted,letterSpacing:2,textTransform:"uppercase",marginBottom:8}}>🟢 3D Green Image (Polycam / LiDAR)</div>
+            {hasGreen?(
+              <div style={{position:"relative"}}>
+                <img src={data.greenImage} alt="" style={{width:"100%",aspectRatio:"9/16",objectFit:"cover",borderRadius:10,display:"block"}}/>
+                <button onClick={()=>onChange({...data,greenImage:null})} style={{position:"absolute",top:6,right:6,width:22,height:22,borderRadius:"50%",background:"rgba(192,64,64,.9)",border:"none",color:"white",fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+              </div>
+            ):(
+              <button onClick={()=>greenRef.current?.click()} style={{width:"100%",background:"rgba(5,14,6,.7)",border:"1px dashed rgba(201,162,39,.3)",borderRadius:10,cursor:"pointer",padding:"20px",display:"flex",flexDirection:"column",alignItems:"center",gap:6,color:C.creamMuted}}>
+                <div style={{fontSize:28}}>🟢</div>
+                <div style={{fontSize:12,fontWeight:600,color:C.goldLight}}>Upload 3D Green Image</div>
+                <div style={{fontSize:10}}>Polycam export, portrait orientation preferred</div>
+              </button>
+            )}
+            <input ref={greenRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleGreenImg}/>
+          </div>
+
+          {/* GLB Model */}
+          <div>
+            <div style={{fontSize:10,color:C.creamMuted,letterSpacing:2,textTransform:"uppercase",marginBottom:8}}>📦 3D Green Model GLB (Interactive)</div>
+            {hasModel?(
+              <div style={{marginBottom:8}}>
+                <ModelViewerEmbed glbData={data.greenModel} label={`Hole ${holeNum}`}/>
+                <button onClick={()=>onChange({...data,greenModel:null})} style={{marginTop:8,background:"rgba(192,64,64,.15)",border:"1px solid rgba(192,64,64,.3)",borderRadius:7,color:"#e07070",padding:"6px 12px",fontSize:11,cursor:"pointer"}}>Remove GLB</button>
+              </div>
+            ):(
+              <button onClick={()=>glbRef.current?.click()} style={{width:"100%",background:"rgba(5,14,6,.7)",border:"1px dashed rgba(201,162,39,.3)",borderRadius:10,cursor:"pointer",padding:"16px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:C.creamMuted}}>
+                <div style={{fontSize:22}}>📦</div>
+                <div style={{fontSize:12,fontWeight:600,color:C.goldLight}}>Upload Polycam GLB</div>
+                <div style={{fontSize:10}}>Interactive 3D model · drag to rotate</div>
               </button>
             )}
             <input ref={glbRef} type="file" accept=".glb,.gltf" style={{display:"none"}} onChange={handleGlb}/>
+          </div>
+
+          {/* Hole Description */}
+          <div>
+            <div style={{fontSize:10,color:C.creamMuted,letterSpacing:2,textTransform:"uppercase",marginBottom:8}}>📝 Hole Description</div>
+            <textarea
+              value={data.description||""}
+              onChange={e=>onChange({...data,description:e.target.value})}
+              placeholder={`e.g. "Dogleg right with bunker protection front left. Green slopes back to front."`}
+              rows={3}
+              style={{...iStyle(false),resize:"none",fontFamily:"'DM Sans',sans-serif",fontSize:13}}
+            />
           </div>
         </div>
       )}
@@ -1088,7 +1076,7 @@ function DtgAdminPanel({courses, onSaveCourses, shopItems, onSaveShop, onClose})
   }
 
   // Course form
-  const emptyCourse=()=>({id:"c_"+Date.now(),name:"",city:"",state:"FL",holes:18,tees:[{name:"Blue",color:"#1a4dcc",rating:"",slope:"",yardages:Array(18).fill("")},{name:"White",color:"#e8e8e8",rating:"",slope:"",yardages:Array(18).fill("")},{name:"Red",color:"#cc1a1a",rating:"",slope:"",yardages:Array(18).fill("")}],pars:Array(18).fill("4"),handicaps:Array(18).fill(""),practiceRange:false,practiceNotes:"",signatureHole:"",signatureHoleNote:"",featuredPhotos:[],communityPhotos:[],holeData:Array.from({length:18},(_,i)=>({holeNum:i+1,photos:[],greenModel:null,notes:""})),createdAt:new Date().toISOString()});
+  const emptyCourse=()=>({id:"c_"+Date.now(),name:"",city:"",state:"FL",holes:18,tees:[{name:"Blue",color:"#1a4dcc",rating:"",slope:"",yardages:Array(18).fill("")},{name:"White",color:"#e8e8e8",rating:"",slope:"",yardages:Array(18).fill("")},{name:"Red",color:"#cc1a1a",rating:"",slope:"",yardages:Array(18).fill("")}],pars:Array(18).fill("4"),handicaps:Array(18).fill(""),practiceRange:false,practiceNotes:"",signatureHole:"",signatureHoleNote:"",featuredPhotos:[],communityPhotos:[],holeData:Array.from({length:18},(_,i)=>({holeNum:i+1,earthImage:null,greenImage:null,description:"",photos:[],greenModel:null})),createdAt:new Date().toISOString()});
   const [form, setForm] = useState(emptyCourse());
 
   function startAdd(){setForm(emptyCourse());setView("add");}
