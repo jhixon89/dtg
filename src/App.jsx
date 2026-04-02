@@ -3208,13 +3208,20 @@ function VoiceCaddie({bags, members, currentUser, liveTemp, liveWind}){
   function OptionRow({label, emoji, calc}){
     if(!calc?.top) return null;
     const {adj, windDelta, top, second} = calc;
+    const tempDelta = Math.round((temp-70)*0.15);
     return(
       <div style={{background:"rgba(5,14,6,.6)",border:"1px solid rgba(42,107,52,.2)",borderRadius:12,padding:"12px 14px",marginBottom:8}}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-          <div style={{fontWeight:700,fontSize:14,color:C.cream}}>{emoji} {label}</div>
-          <div style={{fontSize:12,color:C.creamMuted}}>
-            {windSpeed>0&&<span>{windDelta>0?"+":""}{windDelta} yds · </span>}
-            Swing for <strong style={{color:C.goldLight}}>{adj} yds</strong>
+        {/* Direction label */}
+        <div style={{fontWeight:700,fontSize:14,color:C.cream,marginBottom:8}}>{emoji} {label}</div>
+
+        {/* Adjusted distance block — matches Shots tab */
+        <div style={{background:"rgba(13,32,16,.8)",border:"1px solid rgba(42,107,52,.3)",borderRadius:10,padding:"10px 14px",marginBottom:10}}>
+          <div style={{fontSize:10,color:C.creamMuted,letterSpacing:2,textTransform:"uppercase",marginBottom:6}}>Adjusted Distance</div>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:26,fontWeight:700,color:C.goldLight,lineHeight:1}}>{adj} <span style={{fontSize:14,color:C.creamMuted}}>yards</span></div>
+          <div style={{fontSize:11,color:C.creamMuted,marginTop:6,display:"flex",gap:10,flexWrap:"wrap"}}>
+            {windDelta!==0&&<span>💨 Wind: {windDelta>0?"+":""}{windDelta} yds</span>}
+            {tempDelta!==0&&<span>🌡️ Temp: {tempDelta>0?"+":""}{tempDelta} yds</span>}
+            {windDelta===0&&tempDelta===0&&<span>No adjustments</span>}
           </div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:second?6:0}}>
@@ -3581,6 +3588,12 @@ function CaddyView({members,bags,saveBags,currentUser}){
         setAutoTemp(tempF);
         setAutoWind({speed:windSpeedMph, dir:windDir, deg:windDeg});
         setTemp(String(tempF));
+        // Auto-fill wind in shots calculator
+        if(windSpeedMph>3){
+          setWindMph(String(windSpeedMph));
+          save("caddy_windMph", String(windSpeedMph));
+          // Don't auto-set direction — user picks headwind/tailwind/crosswind
+        }
         setTempLabel(`📍 ${tempF}°F · 💨 ${windSpeedMph} mph ${windDir} — live weather`);
         save("caddy_temp", String(tempF));
       } catch(e){ console.log("Weather fetch failed",e); }
@@ -3621,7 +3634,13 @@ function CaddyView({members,bags,saveBags,currentUser}){
             <div style={{marginBottom:16}}><label style={{display:"block",fontSize:10,color:C.creamMuted,letterSpacing:2,textTransform:"uppercase",marginBottom:7}}>Your Name</label><select value={player} onChange={e=>{setPlayer(e.target.value);save("caddy_player",e.target.value);setResult(null);}} style={{...iStyle(false),appearance:"none",cursor:"pointer"}}><option value="">Select player…</option>{members.map(m=><option key={m} value={m}>{m}{bags[m.trim().toLowerCase()]?"":" (no bag)"}</option>)}</select></div>
             <div style={{marginBottom:16}}><label style={{display:"block",fontSize:10,color:C.creamMuted,letterSpacing:2,textTransform:"uppercase",marginBottom:7}}>Yardage to Pin</label><input type="number" value={yardage} onChange={e=>{setYardage(e.target.value);setResult(null);}} placeholder="e.g. 160" min="1" max="400" style={{...iStyle(false),fontSize:20,fontFamily:"'Cinzel',serif",textAlign:"center",letterSpacing:2}}/></div>
             <div style={{marginBottom:16}}><label style={{display:"block",fontSize:10,color:C.creamMuted,letterSpacing:2,textTransform:"uppercase",marginBottom:7}}>Shot Goal</label><div style={{display:"flex",gap:10}}>{[{val:"carry",label:"🎯 Carry Only",desc:"Land it here"},{val:"total",label:"📏 Carry + Roll",desc:"Total distance"}].map(t=>(<button key={t.val} onClick={()=>{setShotType(t.val);save("caddy_shotType",t.val);setResult(null);}} style={{flex:1,padding:"10px 10px",borderRadius:10,cursor:"pointer",transition:"all .2s",textAlign:"left",background:shotType===t.val?`linear-gradient(135deg,${C.green},${C.greenLight})`:"rgba(5,14,6,.7)",border:shotType===t.val?"1px solid rgba(77,184,96,.4)":"1px solid rgba(42,107,52,.3)",color:shotType===t.val?C.cream:C.creamMuted}}><div style={{fontSize:13,fontWeight:600}}>{t.label}</div><div style={{fontSize:10,marginTop:3,opacity:.8}}>{t.desc}</div></button>))}</div></div>
-            <div style={{marginBottom:16}}><label style={{display:"block",fontSize:10,color:C.creamMuted,letterSpacing:2,textTransform:"uppercase",marginBottom:7}}>Wind</label><div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>{["none","headwind","tailwind","crosswind"].map(w=>(<button key={w} onClick={()=>{setWind(w);save("caddy_wind",w);setResult(null);}} style={{flex:1,minWidth:70,padding:"8px 6px",borderRadius:9,cursor:"pointer",fontSize:11,fontWeight:600,transition:"all .2s",background:wind===w?`linear-gradient(135deg,${C.green},${C.greenLight})`:"rgba(5,14,6,.7)",border:wind===w?"1px solid rgba(77,184,96,.4)":"1px solid rgba(42,107,52,.3)",color:wind===w?C.cream:C.creamMuted}}>{w==="none"?"🚫 None":w==="headwind"?"⬆️ Head":w==="tailwind"?"⬇️ Tail":"↔️ Cross"}</button>))}</div>{wind!=="none"&&(<div style={{display:"flex",alignItems:"center",gap:10}}><input type="number" value={windMph} onChange={e=>{setWindMph(e.target.value);save("caddy_windMph",e.target.value);setResult(null);}} placeholder="mph" min="1" max="50" style={{...iStyle(false),width:100,textAlign:"center",fontSize:16}}/><span style={{color:C.creamMuted,fontSize:13}}>mph {windLabels[wind].toLowerCase()}</span></div>)}</div>
+            <div style={{marginBottom:16}}><label style={{display:"block",fontSize:10,color:C.creamMuted,letterSpacing:2,textTransform:"uppercase",marginBottom:7}}>Wind</label><div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>{["none","headwind","tailwind","crosswind"].map(w=>(<button key={w} onClick={()=>{setWind(w);save("caddy_wind",w);setResult(null);}} style={{flex:1,minWidth:70,padding:"8px 6px",borderRadius:9,cursor:"pointer",fontSize:11,fontWeight:600,transition:"all .2s",background:wind===w?`linear-gradient(135deg,${C.green},${C.greenLight})`:"rgba(5,14,6,.7)",border:wind===w?"1px solid rgba(77,184,96,.4)":"1px solid rgba(42,107,52,.3)",color:wind===w?C.cream:C.creamMuted}}>{w==="none"?"🚫 None":w==="headwind"?"⬆️ Head":w==="tailwind"?"⬇️ Tail":"↔️ Cross"}</button>))}</div>{wind!=="none"&&(<div style={{display:"flex",alignItems:"center",gap:10}}>
+                      <input type="number" value={windMph} onChange={e=>{setWindMph(e.target.value);save("caddy_windMph",e.target.value);setResult(null);}} placeholder="mph" min="1" max="50" style={{...iStyle(false),width:100,textAlign:"center",fontSize:16}}/>
+                      <div>
+                        <span style={{color:C.creamMuted,fontSize:13}}>mph {windLabels[wind].toLowerCase()}</span>
+                        {autoWind&&autoWind.speed>3&&windMph===String(autoWind.speed)&&<div style={{fontSize:10,color:C.greenBright,marginTop:2}}>📍 live wind</div>}
+                      </div>
+                    </div>)}</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:16}}>
               <div><label style={{display:"block",fontSize:10,color:C.creamMuted,letterSpacing:2,textTransform:"uppercase",marginBottom:7}}>Temperature (°F)</label><input type="number" value={temp} onChange={e=>{setTemp(e.target.value);save("caddy_temp",e.target.value);setResult(null);}} placeholder="70" min="20" max="115" style={{...iStyle(false),textAlign:"center",fontSize:15}}/></div>
               <div><label style={{display:"block",fontSize:10,color:C.creamMuted,letterSpacing:2,textTransform:"uppercase",marginBottom:7}}>Lie</label><div style={{display:"flex",flexDirection:"column",gap:6}}>{["fairway","rough","sand"].map(l=>(<button key={l} onClick={()=>{setLie(l);save("caddy_lie",l);setResult(null);}} style={{padding:"7px 10px",borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:600,transition:"all .2s",textAlign:"left",background:lie===l?`linear-gradient(135deg,${C.green},${C.greenLight})`:"rgba(5,14,6,.7)",border:lie===l?"1px solid rgba(77,184,96,.4)":"1px solid rgba(42,107,52,.3)",color:lie===l?C.cream:C.creamMuted}}>{l==="fairway"?"🟢 Fairway":l==="rough"?"🌿 Rough":"🟡 Sand"}</button>))}</div></div>
