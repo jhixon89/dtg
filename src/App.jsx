@@ -3121,7 +3121,7 @@ function speakText(text, onEnd){
 function stopSpeaking(){ if(window.speechSynthesis) window.speechSynthesis.cancel(); }
 
 // ─── VOICE CADDIE (100% local — NO API calls) ─────────────────────────────────
-function VoiceCaddie({bags, members, currentUser, liveTemp}){
+function VoiceCaddie({bags, members, currentUser, liveTemp, liveWind}){
   const [listening, setListening] = useState(false);
   const [speaking,  setSpeaking]  = useState(false);
   const [transcript,setTranscript]= useState("");
@@ -3181,7 +3181,37 @@ function VoiceCaddie({bags, members, currentUser, liveTemp}){
       return "You haven't set up your bag yet. Head over to the My Bag tab and enter your club distances so I can give you proper recommendations.";
     }
 
-    const {dir:wind, mph:windMph} = parseWind(text);
+    const parsedWind = parseWind(text);
+    const windMentioned = parsedWind.dir!=="none";
+    const effectiveWindMph = windMentioned ? parsedWind.mph : (liveWind?.speed||0);
+
+    // Always give all three wind options when there is wind
+    if(effectiveWindMph > 3){
+      const calcForWind=(dir)=>{
+        const adj = calcAdjusted(yardage, dir, effectiveWindMph, liveTemp||70, lie);
+        const ranked = CLUBS.filter(c=>myBag[c])
+          .map(c=>({club:c,diff:Math.abs(myBag[c]-adj)}))
+          .sort((a,b)=>a.diff-b.diff);
+        return ranked[0]?.club||"unknown";
+      };
+      const hw = calcForWind("headwind");
+      const tw = calcForWind("tailwind");
+      const cw = calcForWind("crosswind");
+      const windInfo = windMentioned
+        ? `${parsedWind.mph} mph ${parsedWind.dir}`
+        : `${liveWind?.speed||effectiveWindMph} mph winds`;
+      let resp = `${yardage} yards with ${windInfo} — here are your three options. `;
+      resp += `Into the wind: ${hw}. `;
+      resp += `Downwind: ${tw}. `;
+      resp += `Crosswind: ${cw}. `;
+      if(lie==="rough") resp += "You're in the rough so take an extra club. ";
+      if(lie==="sand")  resp += "From the sand, open the face and swing full. ";
+      resp += "Pick the one that matches your shot.";
+      return resp;
+    }
+
+    const wind    = windMentioned ? parsedWind.dir : "none";
+    const windMph = windMentioned ? parsedWind.mph : 0;
     const temp = parseTemp(text) || liveTemp || 70;
     const lie  = parseLie(text);
 
@@ -3295,8 +3325,10 @@ function VoiceCaddie({bags, members, currentUser, liveTemp}){
             <div style={{fontSize:14,color:C.creamDim,lineHeight:1.7}}>
               Tell me how many yards you are from the pin, which way the wind is blowing, and what your ball's lie is — and I'll pick your club.
             </div>
-            {liveTemp&&(
-              <div style={{fontSize:12,color:C.greenBright,marginTop:8}}>📍 Current temp: {liveTemp}°F — already factored in</div>
+            {(liveTemp||liveWind)&&(
+              <div style={{fontSize:12,color:C.greenBright,marginTop:8}}>
+                📍 Live conditions:{liveTemp?` ${liveTemp}°F`:""}{liveWind?` · 💨 ${liveWind.speed} mph ${liveWind.dir}`:""}  — already factored in
+              </div>
             )}
           </div>
           <div style={{fontSize:10,color:C.creamMuted,letterSpacing:2,textTransform:"uppercase",marginBottom:10}}>Examples</div>
@@ -3601,7 +3633,8 @@ function CaddyView({members,bags,saveBags,currentUser}){
   const [wind,      setWind]      = useState(()=>localStorage.getItem("caddy_wind")||"none");
   const [windMph,   setWindMph]   = useState(()=>localStorage.getItem("caddy_windMph")||"");
   const [temp,      setTemp]      = useState(()=>localStorage.getItem("caddy_temp")||"70");
-  const [autoTemp,  setAutoTemp]  = useState(null); // live temp from weather API
+  const [autoTemp,  setAutoTemp]  = useState(null);
+  const [autoWind,  setAutoWind]  = useState(null); // {speed, dir, deg}
   const [tempLabel, setTempLabel] = useState("");
   const [lie,       setLie]       = useState(()=>localStorage.getItem("caddy_lie")||"fairway");
   const [greenCond, setGreenCond] = useState(()=>localStorage.getItem("caddy_green")||"normal");
@@ -3620,13 +3653,20 @@ function CaddyView({members,bags,saveBags,currentUser}){
       try {
         const {latitude:lat, longitude:lon} = pos.coords;
         const res = await fetch(
-          `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&temperature_unit=fahrenheit`
+          `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&temperature_unit=fahrenheit&wind_speed_unit=mph`
         );
         const data = await res.json();
-        const tempF = Math.round(data.current_weather?.temperature||70);
+        const cw = data.current_weather||{};
+        const tempF = Math.round(cw.temperature||70);
+        const windSpeedMph = Math.round(cw.windspeed||0);
+        const windDeg = cw.winddirection||0;
+        // Convert wind degrees to cardinal direction label
+        const dirs=["N","NE","E","SE","S","SW","W","NW"];
+        const windDir=dirs[Math.round(windDeg/45)%8];
         setAutoTemp(tempF);
+        setAutoWind({speed:windSpeedMph, dir:windDir, deg:windDeg});
         setTemp(String(tempF));
-        setTempLabel(`📍 ${tempF}°F — auto-detected`);
+        setTempLabel(`📍 ${tempF}°F · 💨 ${windSpeedMph} mph ${windDir} — live weather`);
         save("caddy_temp", String(tempF));
       } catch(e){ console.log("Weather fetch failed",e); }
     }, ()=>{ /* location denied — use saved temp */ });
@@ -3714,7 +3754,7 @@ function CaddyView({members,bags,saveBags,currentUser}){
 
       {subView==="voice"&&(
         <div style={{paddingTop:4}}>
-          <VoiceCaddie bags={bags} members={members} currentUser={currentUser} liveTemp={autoTemp}/>
+          <VoiceCaddie bags={bags} members={members} currentUser={currentUser} liveTemp={autoTemp} liveWind={autoWind}/>
         </div>
       )}
       {subView==="green"&&(
