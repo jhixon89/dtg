@@ -3172,87 +3172,74 @@ function VoiceCaddie({bags, members, currentUser, liveTemp, liveWind}){
   // Core logic — same math as the calculator, no API
   function getCaddieRead(text){
     const yardage = parseYardage(text);
-    if(!yardage) return "I didn't catch a yardage. Tell me how many yards you've got and I'll get you sorted.";
-    if(!hasBag){
-      const bagKeys = Object.keys(myBag);
-      return `Your bag appears empty (player: "${myName}", keys found: ${bagKeys.length}). Head to My Bag tab, select your name, enter your distances, and tap Save Bag.`;
-    }
+    if(!yardage) return "I didn't catch a yardage. Tell me how many yards you've got.";
+    if(!hasBag)  return "Your bag isn't set up yet. Go to My Bag, enter your distances, and tap Save Bag.";
 
-    const parsedWind   = parseWind(text);
-    const windMentioned= parsedWind.dir!=="none";
-    const windMph      = windMentioned ? parsedWind.mph : (liveWind?.speed||0);
-    const temp         = parseTemp(text)||liveTemp||70;
-    const lie          = parseLie(text);
-    const greenCond    = "normal";
+    const temp      = liveTemp||70;
+    const lie       = parseLie(text);
+    const greenCond = "normal";
 
-    // Full calculation matching Shots tab exactly
-    function fullCalc(windDir){
-      const adj = calcAdjusted(yardage, windDir, windMph, temp, lie);
+    // Full calc matching shots tab — carry + roll
+    function calcOption(windDir, windSpeed){
+      const adj = calcAdjusted(yardage, windDir, windSpeed, temp, lie);
       const ranked = CLUBS.filter(c=>myBag[c]).map(c=>{
-        const carry   = myBag[c];
-        const rollPct = getRollout(c, greenCond);
-        const roll    = Math.round(carry * rollPct);
-        const total   = carry + roll;
-        const diff    = Math.abs(total - adj); // carry+roll vs adjusted
-        const over    = total - adj;
-        return {club:c, carry, roll, total, adj, diff, over};
+        const carry = +myBag[c];
+        const roll  = Math.round(carry * getRollout(c, greenCond));
+        const total = carry + roll;
+        const over  = total - adj;
+        return {club:c, carry, roll, total, adj, over, diff:Math.abs(over)};
       }).sort((a,b)=>a.diff-b.diff);
-      return {adj, top:ranked[0], second:ranked[1], ranked};
+      return ranked;
     }
 
-    // Temp adjustment text
-    const tempDiff = Math.round((temp-70)*0.15);
-    const tempNote = tempDiff!==0 ? `${temp}°F ${tempDiff>0?"adds":"removes"} ${Math.abs(tempDiff)} yard${Math.abs(tempDiff)!==1?"s":""}` : `${temp}°F doesn't change the distance`;
+    const windSpeed = liveWind?.speed||0;
+    const tempAdj   = Math.round((temp-70)*0.15);
+    const tempNote  = tempAdj!==0
+      ? `${temp}°F ${tempAdj>0?"adds":"removes"} ${Math.abs(tempAdj)} yard${Math.abs(tempAdj)!==1?"s":""}`
+      : `${temp}°F — no temp adjustment`;
 
-    // Wind note
-    const windNote = (dir, mph) => {
-      if(dir==="none"||mph===0) return "no wind";
-      const adj2 = calcAdjusted(yardage, dir, mph, 70, "fairway") - yardage;
-      return `${mph} mph ${dir} = ${adj2>0?"+":""}${adj2} yards`;
-    };
-
-    // Always give all 3 wind options with full breakdown
-    const hw = fullCalc("headwind");
-    const tw = fullCalc("tailwind");
-    const cw = fullCalc("crosswind");
-    const cl = fullCalc("none"); // calm
-
-    const windInfo = windMph>0
-      ? `${windMph} mph winds`
-      : "no wind detected";
-
-    // Format one option's full detail
-    function fmtOption(label, calc){
-      const {adj, top, second} = calc;
-      if(!top) return `${label}: no club found`;
-      let s = `${label} — plays ${adj} yards. `;
-      s += `${top.club}: ${top.carry} carry plus ${top.roll} roll equals ${top.total} total, ${Math.abs(top.over)} yards ${top.over>=0?"long":"short"}. `;
-      if(second && second.diff<=6){
-        s += `Or the ${second.club}: ${second.carry} carry plus ${second.roll} roll equals ${second.total} total, ${Math.abs(second.over)} yards ${second.over>=0?"long":"short"}. `;
+    function fmt(windLabel, windDir){
+      const r = calcOption(windDir, windSpeed);
+      const top = r[0]; if(!top) return "";
+      const adj = top.adj;
+      const windYds = adj - yardage;
+      const windNote = windDir==="none" ? "no wind" : `${windSpeed} mph ${windDir} = ${windYds>0?"+":""}${windYds} yards`;
+      let s = `${windLabel}: ${windNote}. Swing for ${adj} yards.
+`;
+      s += `  → ${top.club}: ${top.carry} carry + ${top.roll} roll = ${top.total} total`;
+      s += `, ${Math.abs(top.over)} yard${Math.abs(top.over)!==1?"s":""} ${top.over>0?"long":"short"}.
+`;
+      if(r[1] && r[1].diff<=6){
+        const b = r[1];
+        s += `  → Or ${b.club}: ${b.carry} carry + ${b.roll} roll = ${b.total} total`;
+        s += `, ${Math.abs(b.over)} yard${Math.abs(b.over)!==1?"s":""} ${b.over>0?"long":"short"}.
+`;
       }
       return s;
     }
 
-    let resp = `${yardage} yards. ${tempNote}. ${windInfo}. `;
-    if(lie==="rough")    resp += "You're in the rough. ";
-    if(lie==="sand")     resp += "You're in the sand. ";
-    if(lie==="uphill")   resp += "Uphill lie. ";
-    if(lie==="downhill") resp += "Downhill lie. ";
-    resp += "Here are your three options:
+    let resp = `${yardage} yards · ${tempNote}`;
+    if(windSpeed>0) resp += ` · ${windSpeed} mph wind`;
+    if(lie==="rough")    resp += " · rough";
+    if(lie==="sand")     resp += " · sand";
+    if(lie==="uphill")   resp += " · uphill";
+    if(lie==="downhill") resp += " · downhill";
+    resp += "
 
 ";
-    resp += fmtOption("⬆️ Headwind", hw);
+    resp += fmt("⬆️  Headwind",  "headwind");
     resp += "
 ";
-    resp += fmtOption("⬇️ Tailwind", tw);
+    resp += fmt("⬇️  Tailwind",  "tailwind");
     resp += "
 ";
-    resp += fmtOption("↔️ Crosswind", cw);
-    if(windMph===0){ resp += "
-"; resp += fmtOption("🏳️ No Wind", cl); }
-    resp += "
-Pick the option that matches your shot.";
-    return resp;
+    resp += fmt("↔️  Crosswind", "crosswind");
+    if(windSpeed===0){
+      resp += "
+";
+      resp += fmt("🏳️  No wind",  "none");
+    }
+    return resp.trim();
   }
 
   function speak(text){
