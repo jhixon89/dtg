@@ -3122,221 +3122,185 @@ function stopSpeaking(){ if(window.speechSynthesis) window.speechSynthesis.cance
 
 // ─── VOICE CADDIE (100% local — NO API calls) ─────────────────────────────────
 function VoiceCaddie({bags, members, currentUser, liveTemp, liveWind}){
-  const [listening, setListening] = useState(false);
-  const [speaking,  setSpeaking]  = useState(false);
-  const [transcript,setTranscript]= useState("");
-  const [response,  setResponse]  = useState("");
-  const [error,     setError]     = useState("");
+  const [listening,  setListening]  = useState(false);
+  const [transcript, setTranscript] = useState("");
+  const [result,     setResult]     = useState(null); // {yardage, lie, options:[]}
+  const [speaking,   setSpeaking]   = useState(false);
+  const [error,      setError]      = useState("");
   const recogRef = useRef(null);
 
-  // Get current player's bag
-  const myName = currentUser?.displayName?.trim().toLowerCase()||"";
+  const myName = (currentUser?.displayName||"").trim().toLowerCase();
   const myBag  = bags?.[myName]||{};
-  const hasBag = Object.keys(myBag).filter(k=>myBag[k]).length > 0;
+  const hasBag = CLUBS.some(c=>myBag[c]>0);
 
-  // Parse yardage from speech
-  function parseYardage(text){
-    const match = text.match(/(\d{2,3})\s*(yard|yards|yds|yd)?/i);
-    return match ? parseInt(match[1]) : null;
+  const windSpeed = liveWind?.speed||0;
+  const windDir   = liveWind?.dir||"";
+  const temp      = liveTemp||70;
+
+  function parseYards(text){
+    const m = text.match(/(\d{2,3})/);
+    return m ? parseInt(m[1]) : null;
   }
 
-  // Parse wind from speech
-  function parseWind(text){
-    const t = text.toLowerCase();
-    let dir="none", mph=0;
-    if(t.includes("headwind")||t.includes("into")||t.includes("head wind")) dir="headwind";
-    else if(t.includes("tailwind")||t.includes("downwind")||t.includes("tail wind")) dir="tailwind";
-    else if(t.includes("crosswind")||t.includes("cross wind")) dir="crosswind";
-    const mphMatch = t.match(/(\d+)\s*(mph|mile)/i);
-    if(mphMatch) mph=parseInt(mphMatch[1]);
-    else if(dir!=="none") mph=10; // assume 10mph if direction mentioned but no speed
-    return {dir, mph};
-  }
-
-  // Parse temperature
-  function parseTemp(text){
-    const match = text.match(/(\d{2,3})\s*(degree|degrees|°|°f)/i);
-    return match ? parseInt(match[1]) : 70;
-  }
-
-  // Parse uphill/downhill
   function parseLie(text){
     const t = text.toLowerCase();
-    if(t.includes("uphill")) return "uphill";
-    if(t.includes("downhill")) return "downhill";
-    if(t.includes("rough")) return "rough";
+    if(t.includes("rough"))   return "rough";
     if(t.includes("sand")||t.includes("bunker")) return "sand";
     return "fairway";
   }
 
-  // Core logic — same math as the calculator, no API
-  function getCaddieRead(text){
-    const yardage = parseYardage(text);
-    if(!yardage) return "I didn't catch a yardage. Tell me how many yards you've got.";
-    if(!hasBag)  return "Your bag isn't set up yet. Go to My Bag, enter your distances, and tap Save Bag.";
-
-    const temp      = liveTemp||70;
-    const lie       = parseLie(text);
-    const greenCond = "normal";
-
-    // Full calc matching shots tab — carry + roll
-    function calcOption(windDir, windSpeed){
-      const adj = calcAdjusted(yardage, windDir, windSpeed, temp, lie);
-      const ranked = CLUBS.filter(c=>myBag[c]).map(c=>{
-        const carry = +myBag[c];
-        const roll  = Math.round(carry * getRollout(c, greenCond));
-        const total = carry + roll;
-        const over  = total - adj;
-        return {club:c, carry, roll, total, adj, over, diff:Math.abs(over)};
-      }).sort((a,b)=>a.diff-b.diff);
-      return ranked;
-    }
-
-    const windSpeed = liveWind?.speed||0;
-    const tempAdj   = Math.round((temp-70)*0.15);
-    const tempNote  = tempAdj!==0
-      ? `${temp}°F ${tempAdj>0?"adds":"removes"} ${Math.abs(tempAdj)} yard${Math.abs(tempAdj)!==1?"s":""}`
-      : `${temp}°F — no temp adjustment`;
-
-    function fmt(windLabel, windDir){
-      const r = calcOption(windDir, windSpeed);
-      const top = r[0]; if(!top) return "";
-      const adj = top.adj;
-      const windYds = adj - yardage;
-      const windNote = windDir==="none" ? "no wind" : `${windSpeed} mph ${windDir} = ${windYds>0?"+":""}${windYds} yards`;
-      let s = `${windLabel}: ${windNote}. Swing for ${adj} yards.
-`;
-      s += `  → ${top.club}: ${top.carry} carry + ${top.roll} roll = ${top.total} total`;
-      s += `, ${Math.abs(top.over)} yard${Math.abs(top.over)!==1?"s":""} ${top.over>0?"long":"short"}.
-`;
-      if(r[1] && r[1].diff<=6){
-        const b = r[1];
-        s += `  → Or ${b.club}: ${b.carry} carry + ${b.roll} roll = ${b.total} total`;
-        s += `, ${Math.abs(b.over)} yard${Math.abs(b.over)!==1?"s":""} ${b.over>0?"long":"short"}.
-`;
-      }
-      return s;
-    }
-
-    let resp = `${yardage} yards · ${tempNote}`;
-    if(windSpeed>0) resp += ` · ${windSpeed} mph wind`;
-    if(lie==="rough")    resp += " · rough";
-    if(lie==="sand")     resp += " · sand";
-    if(lie==="uphill")   resp += " · uphill";
-    if(lie==="downhill") resp += " · downhill";
-    resp += "
-
-";
-    resp += fmt("⬆️  Headwind",  "headwind");
-    resp += "
-";
-    resp += fmt("⬇️  Tailwind",  "tailwind");
-    resp += "
-";
-    resp += fmt("↔️  Crosswind", "crosswind");
-    if(windSpeed===0){
-      resp += "
-";
-      resp += fmt("🏳️  No wind",  "none");
-    }
-    return resp.trim();
+  function calcClubs(yardage, windDir, lie){
+    const adj = calcAdjusted(yardage, windDir, windSpeed, temp, lie);
+    const windDelta = adj - yardage;
+    const ranked = CLUBS.filter(c=>myBag[c]>0).map(c=>{
+      const carry = +myBag[c];
+      const roll  = Math.round(carry * getRollout(c,"normal"));
+      const total = carry + roll;
+      const over  = total - adj;
+      return {club:c, carry, roll, total, adj, over, diff:Math.abs(over)};
+    }).sort((a,b)=>a.diff-b.diff);
+    return {adj, windDelta, top:ranked[0], second:ranked[1]};
   }
 
-  function speak(text){
-    setResponse(text);
-    setSpeaking(true);
-    speakText(text, ()=>setSpeaking(false));
+  function buildResult(text){
+    const yardage = parseYards(text);
+    const lie     = parseLie(text);
+    if(!yardage) return null;
+
+    const hw = calcClubs(yardage, "headwind", lie);
+    const tw = calcClubs(yardage, "tailwind",  lie);
+    const cw = calcClubs(yardage, "crosswind", lie);
+
+    return {yardage, lie, temp, windSpeed, windDir, hw, tw, cw};
   }
 
   function startListening(){
     const SR = window.SpeechRecognition||window.webkitSpeechRecognition;
-    if(!SR){
-      setError("Voice input not supported — try Safari on iPhone or Chrome on Android.");
-      return;
-    }
-    stopSpeaking(); setSpeaking(false);
+    if(!SR){ setError("Voice not supported — try Safari on iPhone."); return; }
+    stopSpeaking(); setSpeaking(false); setError("");
     const recog = new SR();
-    recog.lang="en-US"; recog.interimResults=false; recog.maxAlternatives=1;
-    recog.onstart=()=>{ setListening(true); setError(""); };
+    recog.lang="en-US"; recog.interimResults=false;
+    recog.onstart=()=>setListening(true);
+    recog.onend=()=>setListening(false);
+    recog.onerror=()=>{ setListening(false); setError("Didn't catch that — try again."); };
     recog.onresult=e=>{
-      const text=e.results[0][0].transcript;
+      const text = e.results[0][0].transcript;
       setTranscript(text);
       setListening(false);
-      const read = getCaddieRead(text);
-      setResponse(read);
-      setSpeaking(false); // don't auto-speak — let user tap
+      const r = buildResult(text);
+      setResult(r);
     };
-    recog.onerror=()=>{ setListening(false); setError("Didn't catch that — tap the mic and speak clearly."); };
-    recog.onend=()=>setListening(false);
     recogRef.current=recog;
     recog.start();
   }
 
+  function speakResult(r){
+    if(!r) return;
+    const {yardage, lie, hw, tw, cw} = r;
+    const lieNote = lie!=="fairway" ? ` from the ${lie}` : "";
+    let s = `${yardage} yards${lieNote}. `;
+    s += `Headwind: hit ${hw.top?.club||"unknown"}, ${hw.top?.carry} carry, ${hw.top?.total} total. `;
+    s += `Tailwind: hit ${tw.top?.club||"unknown"}, ${tw.top?.carry} carry, ${tw.top?.total} total. `;
+    s += `Crosswind: hit ${cw.top?.club||"unknown"}, ${cw.top?.carry} carry, ${cw.top?.total} total.`;
+    setSpeaking(true);
+    speakText(s, ()=>setSpeaking(false));
+  }
+
+  function OptionRow({label, emoji, calc}){
+    if(!calc?.top) return null;
+    const {adj, windDelta, top, second} = calc;
+    return(
+      <div style={{background:"rgba(5,14,6,.6)",border:"1px solid rgba(42,107,52,.2)",borderRadius:12,padding:"12px 14px",marginBottom:8}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+          <div style={{fontWeight:700,fontSize:14,color:C.cream}}>{emoji} {label}</div>
+          <div style={{fontSize:12,color:C.creamMuted}}>
+            {windSpeed>0&&<span>{windDelta>0?"+":""}{windDelta} yds · </span>}
+            Swing for <strong style={{color:C.goldLight}}>{adj} yds</strong>
+          </div>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:second?6:0}}>
+          <div style={{background:`linear-gradient(135deg,${C.green},${C.greenLight})`,borderRadius:8,padding:"6px 12px",fontFamily:"'Cinzel',serif",fontSize:15,fontWeight:700,color:C.cream,flexShrink:0}}>{top.club}</div>
+          <div style={{fontSize:12,color:C.creamDim,lineHeight:1.6}}>
+            {top.carry} carry + {top.roll} roll = <strong>{top.total}</strong> total
+            <span style={{color:Math.abs(top.over)<=3?C.greenBright:C.creamMuted}}> ({top.over>0?"+":""}{top.over} yds)</span>
+          </div>
+        </div>
+        {second&&second.diff<=6&&(
+          <div style={{display:"flex",alignItems:"center",gap:8,paddingTop:6,borderTop:"1px solid rgba(42,107,52,.1)",marginTop:2}}>
+            <div style={{background:"rgba(42,107,52,.3)",borderRadius:8,padding:"6px 12px",fontFamily:"'Cinzel',serif",fontSize:13,fontWeight:700,color:C.creamDim,flexShrink:0}}>{second.club}</div>
+            <div style={{fontSize:12,color:C.creamMuted,lineHeight:1.6}}>
+              {second.carry} carry + {second.roll} roll = <strong>{second.total}</strong> total
+              <span> ({second.over>0?"+":""}{second.over} yds)</span>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return(
     <div style={{fontFamily:"'DM Sans',sans-serif"}}>
-      <div style={{textAlign:"center",marginBottom:20,paddingTop:8}}>
-        <div style={{fontFamily:"'Cinzel',serif",fontSize:18,fontWeight:700,color:C.cream,marginBottom:4}}>🎙️ VOICE CADDIE</div>
-        <div style={{fontSize:12,color:C.creamMuted}}>Tell me your yardage — I'll pick your club</div>
-        <div style={{fontSize:11,color:"rgba(42,107,52,.6)",marginTop:4}}>No internet needed · uses your bag distances</div>
+      {/* Header */}
+      <div style={{background:"rgba(13,32,16,.8)",border:"1px solid rgba(42,107,52,.2)",borderRadius:14,padding:"14px 16px",marginBottom:16}}>
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:13,fontWeight:700,color:C.cream,marginBottom:6}}>👩 Your Caddie is Ready</div>
+        <div style={{fontSize:13,color:C.creamDim,lineHeight:1.6,marginBottom:8}}>
+          Tell me your yardage and lie — I already know the wind and temperature.
+        </div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {windSpeed>0&&<span style={{background:"rgba(42,107,52,.2)",borderRadius:20,padding:"3px 10px",fontSize:11,color:C.greenBright}}>💨 {windSpeed} mph {windDir}</span>}
+          <span style={{background:"rgba(42,107,52,.2)",borderRadius:20,padding:"3px 10px",fontSize:11,color:C.greenBright}}>🌡️ {temp}°F</span>
+        </div>
       </div>
 
-      {/* Bag status */}
+      {/* Bag warning */}
       {!hasBag&&(
-        <div style={{background:"rgba(201,162,39,.08)",border:"1px solid rgba(201,162,39,.2)",borderRadius:10,padding:"12px 14px",marginBottom:16,fontSize:12,color:C.goldLight}}>
-          ⚠️ Set up your bag in <strong>My Bag</strong> first so I know your distances
+        <div style={{background:"rgba(201,162,39,.08)",border:"1px solid rgba(201,162,39,.2)",borderRadius:10,padding:"12px 14px",marginBottom:12,fontSize:12,color:C.goldLight}}>
+          ⚠️ Set up your bag in <strong>My Bag</strong> first
         </div>
       )}
 
-      {/* Instruction + examples */}
-      {!transcript&&(
-        <div style={{marginBottom:20}}>
-          <div style={{background:"rgba(13,32,16,.8)",border:"1px solid rgba(42,107,52,.2)",borderRadius:14,padding:"16px 18px",marginBottom:16}}>
-            <div style={{fontFamily:"'Cinzel',serif",fontSize:13,fontWeight:700,color:C.cream,marginBottom:8}}>👩 Your Caddie is Ready</div>
-            <div style={{fontSize:14,color:C.creamDim,lineHeight:1.7}}>
-              Tell me how many yards you are from the pin, which way the wind is blowing, and what your ball's lie is — and I'll pick your club.
-            </div>
-            {(liveTemp||liveWind)&&(
-              <div style={{fontSize:12,color:C.greenBright,marginTop:8}}>
-                📍 Live conditions:{liveTemp?` ${liveTemp}°F`:""}{liveWind?` · 💨 ${liveWind.speed} mph ${liveWind.dir}`:""}  — already factored in
-              </div>
-            )}
-          </div>
-          <div style={{fontSize:10,color:C.creamMuted,letterSpacing:2,textTransform:"uppercase",marginBottom:10}}>Examples</div>
-          {[
-            "145 yards, into the wind, fairway",
-            "80 yards, no wind, out of the rough",
-            "210 yards, 10 mph tailwind, fairway",
-          ].map(q=>(
-            <button key={q} onClick={()=>{let r;try{r=getCaddieRead(q);}catch(e){r="Error: "+e.message;}setTranscript(q);setResponse(r||"No response — check your bag is set up in My Bag.");setSpeaking(false);}} style={{display:"block",width:"100%",background:"rgba(13,32,16,.7)",border:"1px solid rgba(42,107,52,.2)",borderRadius:10,color:C.creamMuted,padding:"11px 14px",fontSize:13,cursor:"pointer",textAlign:"left",marginBottom:8,fontStyle:"italic"}}>
+      {/* Examples */}
+      {!result&&(
+        <div style={{marginBottom:16}}>
+          <div style={{fontSize:10,color:C.creamMuted,letterSpacing:2,textTransform:"uppercase",marginBottom:8}}>Try saying</div>
+          {["165 yards fairway","80 yards rough","210 yards"].map(q=>(
+            <button key={q} onClick={()=>{setTranscript(q);setResult(buildResult(q));}} style={{display:"block",width:"100%",background:"rgba(13,32,16,.7)",border:"1px solid rgba(42,107,52,.2)",borderRadius:10,color:C.creamMuted,padding:"11px 14px",fontSize:13,cursor:"pointer",textAlign:"left",marginBottom:6,fontStyle:"italic"}}>
               "{q}"
             </button>
           ))}
         </div>
       )}
 
-      {/* What you said */}
+      {/* Transcript */}
       {transcript&&(
-        <div style={{background:"rgba(13,32,16,.8)",border:"1px solid rgba(42,107,52,.2)",borderRadius:12,padding:"12px 16px",marginBottom:12}}>
-          <div style={{fontSize:10,color:C.creamMuted,letterSpacing:2,textTransform:"uppercase",marginBottom:5}}>You said</div>
-          <div style={{fontSize:14,color:C.creamDim}}>"{transcript}"</div>
+        <div style={{background:"rgba(13,32,16,.7)",borderRadius:10,padding:"10px 14px",marginBottom:12,fontSize:13,color:C.creamDim}}>
+          You said: "{transcript}"
         </div>
       )}
 
-      {/* Caddie response */}
-      {response&&(
-        <div style={{background:"linear-gradient(135deg,rgba(120,20,100,.15),rgba(13,32,16,.9))",border:"1px solid rgba(180,60,160,.25)",borderRadius:12,padding:"16px",marginBottom:16}}>
-          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
-            <div style={{width:36,height:36,borderRadius:18,background:"linear-gradient(135deg,#7a1070,#c927a8)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>👩</div>
-            <div style={{fontFamily:"'Cinzel',serif",fontSize:12,fontWeight:700,color:"rgba(200,100,180,.9)",letterSpacing:1}}>CADDIE</div>
-            {speaking&&<div style={{fontSize:10,color:"rgba(200,100,180,.6)",marginLeft:4}}>speaking…</div>}
+      {/* No yardage found */}
+      {transcript&&!result&&(
+        <div style={{background:"rgba(201,162,39,.08)",border:"1px solid rgba(201,162,39,.2)",borderRadius:10,padding:"12px 14px",marginBottom:12,fontSize:13,color:C.goldLight}}>
+          I didn't catch a yardage — say something like "165 yards fairway"
+        </div>
+      )}
+
+      {/* Results */}
+      {result&&(
+        <div>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:14,fontWeight:700,color:C.cream}}>
+              {result.yardage} yards · {result.lie}
+            </div>
+            <button onClick={()=>speakResult(result)} disabled={speaking} style={{background:speaking?"rgba(60,60,60,.3)":`linear-gradient(135deg,#7a1070,#c927a8)`,border:"none",borderRadius:8,color:speaking?C.creamMuted:"white",padding:"7px 14px",fontSize:12,fontWeight:600,cursor:speaking?"default":"pointer"}}>
+              {speaking?"🔊 Speaking…":"🔊 Hear It"}
+            </button>
           </div>
-          <div style={{fontSize:14,color:C.cream,lineHeight:1.9,marginBottom:14,whiteSpace:"pre-line",maxHeight:320,overflowY:"auto",padding:"4px 0"}}>{response}</div>
-          <button
-            onClick={()=>{setSpeaking(true);speakText(response,()=>setSpeaking(false));}}
-            disabled={speaking}
-            style={{width:"100%",background:speaking?"rgba(60,60,60,.3)":`linear-gradient(135deg,#7a1070,#c927a8)`,border:"none",borderRadius:10,color:speaking?C.creamMuted:"white",padding:"12px",fontSize:14,fontWeight:700,cursor:speaking?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}
-          >
-            {speaking?"🔊 Speaking…":"🔊 Tap to Hear"}
+          <OptionRow label="Headwind"  emoji="⬆️" calc={result.hw}/>
+          <OptionRow label="Tailwind"  emoji="⬇️" calc={result.tw}/>
+          <OptionRow label="Crosswind" emoji="↔️" calc={result.cw}/>
+          <button onClick={()=>{setResult(null);setTranscript("");}} style={{width:"100%",background:"rgba(255,255,255,.05)",border:"1px solid rgba(42,107,52,.2)",borderRadius:10,color:C.creamMuted,padding:"10px",fontSize:13,cursor:"pointer",marginTop:4}}>
+            New Shot
           </button>
         </div>
       )}
@@ -3344,30 +3308,12 @@ function VoiceCaddie({bags, members, currentUser, liveTemp, liveWind}){
       {error&&<div style={{background:"rgba(192,64,64,.1)",border:"1px solid rgba(192,64,64,.3)",borderRadius:10,padding:"12px",color:"#e07070",fontSize:13,marginBottom:12}}>{error}</div>}
 
       {/* Mic button */}
-      <div style={{textAlign:"center",marginTop:20}}>
-        <button
-          onClick={listening?()=>recogRef.current?.stop():startListening}
-          style={{
-            width:90,height:90,borderRadius:45,border:"none",cursor:"pointer",
-            background:listening?"linear-gradient(135deg,#c00,#f44)":speaking?"linear-gradient(135deg,#7a1070,#c927a8)":"linear-gradient(135deg,#5a0860,#a01890)",
-            boxShadow:listening?"0 0 0 12px rgba(200,0,0,.2),0 0 0 24px rgba(200,0,0,.08)":"0 8px 32px rgba(160,24,144,.3)",
-            fontSize:36,display:"inline-flex",alignItems:"center",justifyContent:"center",
-            transition:"all .2s",transform:listening?"scale(1.08)":"scale(1)",
-          }}
-        >
-          {listening?"🎙️":speaking?"🔊":"🎙️"}
+      <div style={{textAlign:"center",marginTop:16}}>
+        <button onClick={listening?()=>recogRef.current?.stop():startListening} style={{width:80,height:80,borderRadius:40,border:"none",cursor:"pointer",background:listening?"linear-gradient(135deg,#c00,#f44)":"linear-gradient(135deg,#5a0860,#a01890)",boxShadow:listening?"0 0 0 12px rgba(200,0,0,.15)":"0 8px 24px rgba(100,0,80,.3)",fontSize:32,display:"inline-flex",alignItems:"center",justifyContent:"center",transition:"all .2s",transform:listening?"scale(1.1)":"scale(1)"}}>
+          🎙️
         </button>
-        <div style={{fontSize:12,color:C.creamMuted,marginTop:10}}>
-          {listening?"Listening…":speaking?"Speaking…":"Tap and say your yardage"}
-        </div>
+        <div style={{fontSize:12,color:C.creamMuted,marginTop:8}}>{listening?"Listening…":"Tap and say your yardage"}</div>
       </div>
-
-      {/* New shot button */}
-      {transcript&&(
-        <button onClick={()=>{setTranscript("");setResponse("");stopSpeaking();setSpeaking(false);}} style={{display:"block",margin:"16px auto 0",background:"rgba(255,255,255,.05)",border:"1px solid rgba(42,107,52,.2)",borderRadius:10,color:C.creamMuted,padding:"10px 24px",fontSize:13,cursor:"pointer"}}>
-          New Shot
-        </button>
-      )}
     </div>
   );
 }
