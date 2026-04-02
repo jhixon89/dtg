@@ -3068,199 +3068,405 @@ function ModelViewerEmbed({glbData, label}){
   );
 }
 
+
+// ─── SPEECH UTILS ─────────────────────────────────────────────────────────────
+function speakText(text, onEnd){
+  if(!window.speechSynthesis) return;
+  window.speechSynthesis.cancel();
+  const utt = new SpeechSynthesisUtterance(text);
+  utt.rate=0.95; utt.pitch=1.05; utt.volume=1;
+  const voices = window.speechSynthesis.getVoices();
+  const femaleVoice =
+    voices.find(v=>v.name.includes("Samantha"))||
+    voices.find(v=>v.name.includes("Karen"))||
+    voices.find(v=>v.name.includes("Moira"))||
+    voices.find(v=>v.name.includes("Google US English Female"))||
+    voices.find(v=>v.name.includes("Microsoft Zira"))||
+    voices.find(v=>v.lang==="en-US"&&v.name.toLowerCase().includes("female"))||
+    voices.find(v=>v.lang==="en-US");
+  if(femaleVoice) utt.voice=femaleVoice;
+  if(onEnd) utt.onend=onEnd;
+  window.speechSynthesis.speak(utt);
+}
+function stopSpeaking(){ if(window.speechSynthesis) window.speechSynthesis.cancel(); }
+
+// ─── VOICE CADDIE (100% local — NO API calls) ─────────────────────────────────
+function VoiceCaddie({bags, members, currentUser}){
+  const [listening, setListening] = useState(false);
+  const [speaking,  setSpeaking]  = useState(false);
+  const [transcript,setTranscript]= useState("");
+  const [response,  setResponse]  = useState("");
+  const [error,     setError]     = useState("");
+  const recogRef = useRef(null);
+
+  // Get current player's bag
+  const myName = currentUser?.displayName?.trim().toLowerCase()||"";
+  const myBag  = bags?.[myName]||{};
+  const hasBag = Object.keys(myBag).filter(k=>myBag[k]).length > 0;
+
+  // Parse yardage from speech
+  function parseYardage(text){
+    const match = text.match(/(\d{2,3})\s*(yard|yards|yds|yd)?/i);
+    return match ? parseInt(match[1]) : null;
+  }
+
+  // Parse wind from speech
+  function parseWind(text){
+    const t = text.toLowerCase();
+    let dir="none", mph=0;
+    if(t.includes("headwind")||t.includes("into")||t.includes("head wind")) dir="headwind";
+    else if(t.includes("tailwind")||t.includes("downwind")||t.includes("tail wind")) dir="tailwind";
+    else if(t.includes("crosswind")||t.includes("cross wind")) dir="crosswind";
+    const mphMatch = t.match(/(\d+)\s*(mph|mile)/i);
+    if(mphMatch) mph=parseInt(mphMatch[1]);
+    else if(dir!=="none") mph=10; // assume 10mph if direction mentioned but no speed
+    return {dir, mph};
+  }
+
+  // Parse temperature
+  function parseTemp(text){
+    const match = text.match(/(\d{2,3})\s*(degree|degrees|°|°f)/i);
+    return match ? parseInt(match[1]) : 70;
+  }
+
+  // Parse uphill/downhill
+  function parseLie(text){
+    const t = text.toLowerCase();
+    if(t.includes("uphill")) return "uphill";
+    if(t.includes("downhill")) return "downhill";
+    if(t.includes("rough")) return "rough";
+    if(t.includes("sand")||t.includes("bunker")) return "sand";
+    return "fairway";
+  }
+
+  // Core logic — same math as the calculator, no API
+  function getCaddieRead(text){
+    const yardage = parseYardage(text);
+
+    if(!yardage){
+      return "I didn't catch a yardage there. Tell me how many yards you've got and I'll pick your club.";
+    }
+
+    if(!hasBag){
+      return "You haven't set up your bag yet. Head over to the My Bag tab and enter your club distances so I can give you proper recommendations.";
+    }
+
+    const {dir:wind, mph:windMph} = parseWind(text);
+    const temp = parseTemp(text);
+    const lie  = parseLie(text);
+
+    // Run the same calcAdjusted logic
+    const adjusted = calcAdjusted(yardage, wind, windMph, temp, lie);
+
+    // Rank clubs by how close they are to adjusted distance
+    const ranked = CLUBS
+      .filter(c => myBag[c])
+      .map(c => {
+        const carry = myBag[c];
+        const rollPct = getRollout(c,"firm");
+        const total = carry + Math.round(carry * rollPct);
+        return { club:c, carry, total, diff:Math.abs(carry - adjusted) };
+      })
+      .sort((a,b) => a.diff - b.diff);
+
+    if(!ranked.length){
+      return "Your bag doesn't seem to have any distances saved. Go to My Bag and enter your yardages.";
+    }
+
+    const top = ranked[0];
+    const second = ranked[1];
+
+    // Build natural spoken response
+    let resp = "";
+
+    // Wind context
+    if(wind==="headwind")      resp += `Into ${windMph} mph of wind, that ${yardage} plays more like ${adjusted}. `;
+    else if(wind==="tailwind") resp += `With ${windMph} mph helping you, that ${yardage} plays more like ${adjusted}. `;
+    else if(wind==="crosswind") resp += `With a crosswind, add a little extra. `;
+    else                        resp += `${yardage} yards. `;
+
+    // Lie context
+    if(lie==="rough")  resp += "Out of the rough, take an extra club. ";
+    if(lie==="sand")   resp += "From the sand, open the face and swing full. ";
+    if(lie==="uphill") resp += "Uphill lie — the ball will fly shorter, commit to the shot. ";
+    if(lie==="downhill") resp += "Downhill lie — it'll fly a bit farther, be smart with it. ";
+
+    // Club recommendation
+    resp += `I've got you hitting ${top.club}. `;
+
+    // Between clubs
+    if(second && second.diff < 8){
+      resp += `You're right between the ${top.club} and ${second.club} — go with the ${top.club} and make a smooth swing. `;
+    }
+
+    // Encouragement
+    const encouragements = [
+      "You've got this.",
+      "Trust the number.",
+      "Commit to it.",
+      "Smooth swing, good contact.",
+      "Pick a target and trust it.",
+    ];
+    resp += encouragements[Math.floor(Math.random()*encouragements.length)];
+
+    return resp;
+  }
+
+  function speak(text){
+    setResponse(text);
+    setSpeaking(true);
+    speakText(text, ()=>setSpeaking(false));
+  }
+
+  function startListening(){
+    const SR = window.SpeechRecognition||window.webkitSpeechRecognition;
+    if(!SR){
+      setError("Voice input not supported — try Safari on iPhone or Chrome on Android.");
+      return;
+    }
+    stopSpeaking(); setSpeaking(false);
+    const recog = new SR();
+    recog.lang="en-US"; recog.interimResults=false; recog.maxAlternatives=1;
+    recog.onstart=()=>{ setListening(true); setError(""); };
+    recog.onresult=e=>{
+      const text=e.results[0][0].transcript;
+      setTranscript(text);
+      setListening(false);
+      const read = getCaddieRead(text);
+      speak(read);
+    };
+    recog.onerror=()=>{ setListening(false); setError("Didn't catch that — tap the mic and speak clearly."); };
+    recog.onend=()=>setListening(false);
+    recogRef.current=recog;
+    recog.start();
+  }
+
+  return(
+    <div style={{fontFamily:"'DM Sans',sans-serif"}}>
+      <div style={{textAlign:"center",marginBottom:20,paddingTop:8}}>
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:18,fontWeight:700,color:C.cream,marginBottom:4}}>🎙️ VOICE CADDIE</div>
+        <div style={{fontSize:12,color:C.creamMuted}}>Tell me your yardage — I'll pick your club</div>
+        <div style={{fontSize:11,color:"rgba(42,107,52,.6)",marginTop:4}}>No internet needed · uses your bag distances</div>
+      </div>
+
+      {/* Bag status */}
+      {!hasBag&&(
+        <div style={{background:"rgba(201,162,39,.08)",border:"1px solid rgba(201,162,39,.2)",borderRadius:10,padding:"12px 14px",marginBottom:16,fontSize:12,color:C.goldLight}}>
+          ⚠️ Set up your bag in <strong>My Bag</strong> first so I know your distances
+        </div>
+      )}
+
+      {/* Example prompts */}
+      {!transcript&&(
+        <div style={{marginBottom:20}}>
+          <div style={{fontSize:10,color:C.creamMuted,letterSpacing:2,textTransform:"uppercase",marginBottom:10}}>Try saying…</div>
+          {[
+            "145 yards",
+            "165 yards into a headwind",
+            "80 yards from the rough",
+            "200 yards with 15 mph tailwind",
+          ].map(q=>(
+            <button key={q} onClick={()=>{setTranscript(q); speak(getCaddieRead(q));}} style={{display:"block",width:"100%",background:"rgba(13,32,16,.7)",border:"1px solid rgba(42,107,52,.2)",borderRadius:10,color:C.creamMuted,padding:"11px 14px",fontSize:12,cursor:"pointer",textAlign:"left",marginBottom:6}}>
+              "{q}"
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* What you said */}
+      {transcript&&(
+        <div style={{background:"rgba(13,32,16,.8)",border:"1px solid rgba(42,107,52,.2)",borderRadius:12,padding:"12px 16px",marginBottom:12}}>
+          <div style={{fontSize:10,color:C.creamMuted,letterSpacing:2,textTransform:"uppercase",marginBottom:5}}>You said</div>
+          <div style={{fontSize:14,color:C.creamDim}}>"{transcript}"</div>
+        </div>
+      )}
+
+      {/* Caddie response */}
+      {response&&(
+        <div style={{background:"linear-gradient(135deg,rgba(120,20,100,.15),rgba(13,32,16,.9))",border:"1px solid rgba(180,60,160,.25)",borderRadius:12,padding:"16px",marginBottom:16}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+            <div style={{width:36,height:36,borderRadius:18,background:"linear-gradient(135deg,#7a1070,#c927a8)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>👩</div>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:12,fontWeight:700,color:"rgba(200,100,180,.9)",letterSpacing:1}}>CADDIE</div>
+            {speaking&&<div style={{fontSize:10,color:"rgba(200,100,180,.6)",marginLeft:4}}>speaking…</div>}
+            {!speaking&&response&&(
+              <button onClick={()=>{setSpeaking(true);speakText(response,()=>setSpeaking(false));}} style={{marginLeft:"auto",background:"rgba(255,255,255,.06)",border:"none",borderRadius:7,color:"#8a9e8a",padding:"5px 10px",fontSize:11,cursor:"pointer"}}>🔊 Replay</button>
+            )}
+          </div>
+          <div style={{fontSize:15,color:C.cream,lineHeight:1.7}}>{response}</div>
+        </div>
+      )}
+
+      {error&&<div style={{background:"rgba(192,64,64,.1)",border:"1px solid rgba(192,64,64,.3)",borderRadius:10,padding:"12px",color:"#e07070",fontSize:13,marginBottom:12}}>{error}</div>}
+
+      {/* Mic button */}
+      <div style={{textAlign:"center",marginTop:20}}>
+        <button
+          onClick={listening?()=>recogRef.current?.stop():startListening}
+          style={{
+            width:90,height:90,borderRadius:45,border:"none",cursor:"pointer",
+            background:listening?"linear-gradient(135deg,#c00,#f44)":speaking?"linear-gradient(135deg,#7a1070,#c927a8)":"linear-gradient(135deg,#5a0860,#a01890)",
+            boxShadow:listening?"0 0 0 12px rgba(200,0,0,.2),0 0 0 24px rgba(200,0,0,.08)":"0 8px 32px rgba(160,24,144,.3)",
+            fontSize:36,display:"inline-flex",alignItems:"center",justifyContent:"center",
+            transition:"all .2s",transform:listening?"scale(1.08)":"scale(1)",
+          }}
+        >
+          {listening?"🎙️":speaking?"🔊":"🎙️"}
+        </button>
+        <div style={{fontSize:12,color:C.creamMuted,marginTop:10}}>
+          {listening?"Listening…":speaking?"Speaking…":"Tap and say your yardage"}
+        </div>
+      </div>
+
+      {/* New shot button */}
+      {transcript&&(
+        <button onClick={()=>{setTranscript("");setResponse("");stopSpeaking();setSpeaking(false);}} style={{display:"block",margin:"16px auto 0",background:"rgba(255,255,255,.05)",border:"1px solid rgba(42,107,52,.2)",borderRadius:10,color:C.creamMuted,padding:"10px 24px",fontSize:13,cursor:"pointer"}}>
+          New Shot
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ─── GREEN READER ────────────────────────────────────────────────────────────
-function GreenReader(){
+function GreenReader({bags, members, currentUser}){
   const [photo,       setPhoto]       = useState(null);
   const [analyzing,   setAnalyzing]   = useState(false);
-  const [result,      setResult]      = useState(null);
-  const [error,       setError]       = useState(null);
+  const [read,        setRead]        = useState(null);   // plain English read
+  const [error,       setError]       = useState("");
   const [puttDist,    setPuttDist]    = useState("");
   const [greenSpeed,  setGreenSpeed]  = useState("medium");
-  const [pathPoints,  setPathPoints]  = useState([]);
-  const [slopeGrid,   setSlopeGrid]   = useState(null);
-  const [showOverlay, setShowOverlay] = useState(true);
-  const fileRef  = useRef(null);
-  const imgRef   = useRef(null);
-  const canvasRef= useRef(null);
+  const [speaking,    setSpeaking]    = useState(false);
+  const [feedback,    setFeedback]    = useState("");
+  const [feedSaved,   setFeedSaved]   = useState(false);
+  const fileRef = useRef(null);
+
+  const myName = currentUser?.displayName?.trim().toLowerCase()||"";
+  const myBag  = bags?.[myName]||{};
+  const bagSummary = Object.entries(myBag).filter(([,v])=>v).map(([c,d])=>`${c}: ${d}yds`).join(", ");
 
   async function handlePhoto(e){
     const f=e.target.files[0];if(!f)return;
-    const resized=await resizeImage(f,900,0.88);
-    setPhoto(resized);setResult(null);setPathPoints([]);setSlopeGrid(null);setError(null);
+    setPhoto(await resizeImage(f,900,0.88));
+    setRead(null);setError("");setFeedback("");setFeedSaved(false);
     e.target.value="";
   }
 
-  function slopeToColor(val){
-    const a=0.35;
-    if(val<0.25) return `rgba(30,180,60,${a+val*0.3})`;
-    if(val<0.5)  return `rgba(200,220,20,${a+val*0.3})`;
-    if(val<0.75) return `rgba(255,130,0,${a+val*0.3})`;
-    return `rgba(220,30,30,${a+val*0.3})`;
-  }
-
-  function renderCanvas(pts, grid, overlay){
-    const canvas=canvasRef.current;
-    const img=imgRef.current;
-    if(!canvas||!img||!pts?.length)return;
-    canvas.width=img.naturalWidth||img.offsetWidth;
-    canvas.height=img.naturalHeight||img.offsetHeight;
-    const ctx=canvas.getContext("2d");
-    ctx.clearRect(0,0,canvas.width,canvas.height);
-
-    // Slope grid overlay
-    if(overlay&&grid&&grid.length>0){
-      const rows=grid.length, cols=grid[0].length;
-      const cw=canvas.width/cols, ch=canvas.height/rows;
-      for(let r=0;r<rows;r++){
-        for(let c=0;c<cols;c++){
-          ctx.fillStyle=slopeToColor(Math.min(1,Math.max(0,grid[r][c]||0)));
-          ctx.fillRect(c*cw,r*ch,cw,ch);
-        }
-      }
-    }
-
-    const m=pts.map(p=>({x:(p.x/100)*canvas.width,y:(p.y/100)*canvas.height}));
-
-    // Shadow under line
-    ctx.beginPath();ctx.moveTo(m[0].x,m[0].y);
-    for(let i=1;i<m.length-1;i++){const mx=(m[i].x+m[i+1].x)/2,my=(m[i].y+m[i+1].y)/2;ctx.quadraticCurveTo(m[i].x,m[i].y,mx,my);}
-    ctx.lineTo(m[m.length-1].x,m[m.length-1].y);
-    ctx.strokeStyle="rgba(0,0,0,0.5)";ctx.lineWidth=10;ctx.lineCap="round";ctx.lineJoin="round";ctx.stroke();
-
-    // Glow
-    ctx.strokeStyle="rgba(255,30,30,0.3)";ctx.lineWidth=18;ctx.stroke();
-
-    // Red line
-    ctx.beginPath();ctx.moveTo(m[0].x,m[0].y);
-    for(let i=1;i<m.length-1;i++){const mx=(m[i].x+m[i+1].x)/2,my=(m[i].y+m[i+1].y)/2;ctx.quadraticCurveTo(m[i].x,m[i].y,mx,my);}
-    ctx.lineTo(m[m.length-1].x,m[m.length-1].y);
-    ctx.strokeStyle="#ff1a1a";ctx.lineWidth=5;ctx.stroke();
-
-    // Arrowhead
-    const last=m[m.length-1],prev=m[m.length-2];
-    const ang=Math.atan2(last.y-prev.y,last.x-prev.x);
-    ctx.beginPath();ctx.moveTo(last.x,last.y);
-    ctx.lineTo(last.x-22*Math.cos(ang-0.4),last.y-22*Math.sin(ang-0.4));
-    ctx.lineTo(last.x-22*Math.cos(ang+0.4),last.y-22*Math.sin(ang+0.4));
-    ctx.closePath();ctx.fillStyle="#ff1a1a";ctx.fill();
-
-    // Ball dot
-    ctx.beginPath();ctx.arc(m[0].x,m[0].y,9,0,Math.PI*2);
-    ctx.fillStyle="white";ctx.fill();ctx.strokeStyle="#ff1a1a";ctx.lineWidth=3;ctx.stroke();
-  }
-
-  useEffect(()=>{
-    if(pathPoints.length>0&&imgRef.current?.complete) renderCanvas(pathPoints,slopeGrid,showOverlay);
-  },[pathPoints,slopeGrid,showOverlay]);
-
   async function analyzeGreen(){
     if(!photo)return;
-    setAnalyzing(true);setError(null);
+    setAnalyzing(true);setError("");
+    stopSpeaking();
     try {
       const base64=photo.split(",")[1];
+      const distText = puttDist?`The putt is ${puttDist} feet long.`:"The putt distance is unknown.";
+      const speedText = greenSpeed==="slow"?"The greens are slow (stimp 7-8).":greenSpeed==="medium"?"The greens are medium speed (stimp 9-10).":greenSpeed==="fast"?"The greens are fast (stimp 11-12).":"The greens are tour speed (stimp 13+).";
 
-      // Load global feedback to improve accuracy
-      let feedbackContext="";
-      try {
-        const fbSnap=await getDoc(doc(db,"dtg_data","greenFeedback"));
-        if(fbSnap.exists()){
-          const entries=fbSnap.data().entries||[];
-          const recent=entries.slice(0,30);
-          const inaccurate=recent.filter(e=>!e.accurate);
-          if(inaccurate.length>0){
-            const count=cat=>inaccurate.filter(e=>e.category===cat).length;
-            const parts=[];
-            const threshold=2;
-            if(count("Break direction was opposite")>=threshold)
-              parts.push("⚠️ Users frequently report break direction is OPPOSITE to prediction — seriously reconsider the break direction.");
-            if(count("Break was more severe than shown")>=threshold)
-              parts.push("⚠️ Users say break is consistently UNDERESTIMATED — predict significantly more break than you initially see.");
-            if(count("Break was less severe than shown")>=threshold)
-              parts.push("⚠️ Users say break is consistently OVERESTIMATED — be more conservative, less break than it looks.");
-            if(count("Ball broke late (near hole)")>=threshold)
-              parts.push("⚠️ Ball tends to break more near the hole — weight the break toward the end of the path.");
-            if(count("Ball broke early (near ball)")>=threshold)
-              parts.push("⚠️ Ball tends to break more near the ball — weight the break toward the start of the path.");
-            if(count("Uphill / downhill was wrong")>=threshold)
-              parts.push("⚠️ Uphill/downhill direction is frequently misread — reanalyze the slope carefully.");
-            if(count("Green speed tip was too slow")>=threshold)
-              parts.push("⚠️ Greens play faster than they look — recommend firmer stroke in summary.");
-            if(count("Green speed tip was too fast")>=threshold)
-              parts.push("⚠️ Greens play slower than they look — recommend softer stroke in summary.");
-            if(count("No break — it was straight")>=threshold)
-              parts.push("⚠️ These greens tend to be flatter than they appear — consider a straighter path.");
-            if(parts.length>0) feedbackContext="\n\nCRITICAL: Learning from "+inaccurate.length+" user corrections:\n"+parts.join("\n");
-          }
-          const accurate=recent.filter(e=>e.accurate).length;
-          const total=recent.length;
-          if(total>5) feedbackContext+="\n("+accurate+"/"+total+" recent reads rated accurate by users)";
-        }
-      } catch(e){console.log("Feedback load failed",e);}
-
-      const response=await fetch("https://api.anthropic.com/v1/messages",{
+      const res = await fetch("https://api.anthropic.com/v1/messages",{
         method:"POST",
         headers:{"Content-Type":"application/json","x-api-key":import.meta.env.VITE_ANTHROPIC_KEY,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
         body:JSON.stringify({
           model:"claude-sonnet-4-20250514",
-          max_tokens:1200,
+          max_tokens:400,
           messages:[{role:"user",content:[
             {type:"image",source:{type:"base64",media_type:"image/jpeg",data:base64}},
-            {type:"text",text:`You are an expert golf green reader. Analyze this putting green photo taken from behind the ball toward the hole.
-Putt: ${puttDist?puttDist+" feet":"unknown distance"}. Green speed: ${greenSpeed==="slow"?"Slow (stimp 7-8)":greenSpeed==="medium"?"Medium (stimp 9-10)":greenSpeed==="fast"?"Fast (stimp 11-12)":"Tour (stimp 13+)"}.${feedbackContext}
-Respond ONLY with JSON no markdown:
-{"pathPoints":[{"x":50,"y":90},{"x":48,"y":70},{"x":45,"y":50},{"x":46,"y":30},{"x":50,"y":10}],"break":"left","severity":4,"uphill":false,"summary":"One sentence caddie read with speed tip","slopeGrid":[[0.1,0.2,0.3,0.4,0.3,0.2,0.1,0.1],[0.2,0.3,0.5,0.5,0.4,0.3,0.2,0.1],[0.3,0.4,0.6,0.7,0.5,0.4,0.3,0.2],[0.2,0.4,0.5,0.6,0.5,0.4,0.2,0.1],[0.2,0.3,0.4,0.5,0.4,0.3,0.2,0.1],[0.1,0.2,0.3,0.4,0.3,0.2,0.1,0.1],[0.1,0.1,0.2,0.3,0.2,0.1,0.1,0.1],[0.1,0.1,0.1,0.2,0.1,0.1,0.1,0.1]]}
-pathPoints: x,y as % (0-100). Start ~x:50,y:90 (ball). End ~x:50,y:10 (hole). Curve shows actual ball path.
-slopeGrid: 8x8 grid 0.0-1.0. Row 0=top, row 7=bottom. Col 0=left, col 7=right. 0=flat, 1=very steep. Base on real terrain visible.`}
+            {type:"text",text:`You are an expert PGA Tour caddie reading a putt for your golfer. They are standing behind their ball looking toward the hole. This photo is taken from that exact position — directly behind the ball, hole is visible at the top of the image.
+
+${distText}
+${speedText}
+${bagSummary?"Golfer's bag: "+bagSummary:""}
+
+Study the image carefully for:
+- Shadows and light that reveal slope direction
+- The visual tilt of the green surface
+- Any obvious high or low sides
+- Grain direction if visible (Bermuda grass shines in grain direction)
+
+Give a VERBAL caddie read — exactly what you would say standing next to your golfer before they putt. Be specific and confident. Include:
+1. Which way it breaks and how much (e.g. "one cup outside left edge")
+2. Whether it's uphill, downhill, or flat
+3. Where exactly to aim
+4. How hard to hit it relative to normal
+
+Keep it under 4 sentences. Speak like a real caddie — confident, direct, no hedging. Do NOT mention coordinates, percentages, or technical terms.
+
+Example of a good caddie read:
+"You've got about a cup and a half of right-to-left break here. It's slightly uphill so give it a little extra pace. Aim at the right edge of the cup and just let gravity do the work. Die it in the left side."
+
+Now give your read for this putt:`}
           ]}]
         })
       });
-      const data=await response.json();
-      const text=data.content?.[0]?.text||"";
-      const parsed=JSON.parse(text.replace(/```json|```/g,"").trim());
-      // Mirror X (camera faces away from golfer)
-      const pts=(parsed.pathPoints||[]).map(p=>({...p,x:100-p.x}));
-      const grid=(parsed.slopeGrid||[]).map(row=>[...row].reverse());
-      setResult({...parsed,pathPoints:pts,slopeGrid:grid});
-      setPathPoints(pts);
-      setSlopeGrid(grid);
-      setTimeout(()=>renderCanvas(pts,grid,true),200);
+
+      const data = await res.json();
+      if(data.error) throw new Error(data.error.message);
+      const caddieRead = data.content?.[0]?.text||"";
+      if(!caddieRead) throw new Error("No response");
+      setRead(caddieRead);
+      setAnalyzing(false);
+      setSpeaking(true);
+      speakText(caddieRead,()=>setSpeaking(false));
     } catch(e){
-      setError("Could not read the green — make sure the hole is visible and try again.");
       console.error(e);
+      setError("Couldn't read the green — "+e.message);
+      setAnalyzing(false);
     }
-    setAnalyzing(false);
   }
 
-  function reset(){setPhoto(null);setResult(null);setPathPoints([]);setSlopeGrid(null);setError(null);}
-  const breakColor=result?.break==="left"?"#60a8ff":result?.break==="right"?"#ff9060":"#60ff90";
+  async function saveFeedback(){
+    if(!feedback)return;
+    try {
+      const entry={
+        id:Date.now().toString(),
+        category:feedback,
+        accurate:feedback==="Read was accurate overall",
+        puttDist,greenSpeed,
+        timestamp:new Date().toISOString(),
+      };
+      const snap=await getDoc(doc(db,"dtg_data","greenFeedback"));
+      const existing=snap.exists()?(snap.data().entries||[]):[];
+      await setDoc(doc(db,"dtg_data","greenFeedback"),{entries:[entry,...existing].slice(0,500)});
+      setFeedSaved(true);
+    } catch(e){console.error(e);}
+  }
+
+  function reset(){setPhoto(null);setRead(null);setError("");setFeedback("");setFeedSaved(false);stopSpeaking();setSpeaking(false);}
 
   return(
-    <div>
+    <div style={{fontFamily:"'DM Sans',sans-serif"}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
         <div>
           <div style={{fontFamily:"'Cinzel',serif",fontSize:15,fontWeight:700,color:"#c9a227",letterSpacing:1}}>🎯 GREEN READER</div>
-          <div style={{fontSize:11,color:"#8a9e8a",marginTop:2}}>AI-powered break + topo overlay</div>
+          <div style={{fontSize:11,color:"#8a9e8a",marginTop:2}}>Photo → caddie tells you how to putt it</div>
         </div>
         {photo&&<button onClick={reset} style={{background:"rgba(255,255,255,.06)",border:"1px solid rgba(255,255,255,.1)",borderRadius:8,color:"#8a9e8a",fontSize:12,cursor:"pointer",padding:"6px 12px"}}>✕ New Photo</button>}
       </div>
 
+      {/* Camera tip */}
+      <div style={{background:"rgba(201,162,39,.06)",border:"1px solid rgba(201,162,39,.15)",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:12,color:"rgba(201,162,39,.8)"}}>
+        📐 Stand behind ball · aim at hole · knee height · as low as possible
+      </div>
+
+      {/* Photo area */}
       {!photo?(
         <div onClick={()=>fileRef.current?.click()} style={{width:"100%",aspectRatio:"4/3",background:"rgba(5,14,6,.8)",border:"1px dashed rgba(42,107,52,.4)",borderRadius:16,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,marginBottom:12}}>
           <div style={{fontSize:44}}>📸</div>
           <div style={{fontFamily:"'Cinzel',serif",fontSize:14,fontWeight:600,color:"#f5f0e8"}}>Take a Green Photo</div>
-          <div style={{fontSize:12,color:"#8a9e8a",textAlign:"center",padding:"0 24px"}}>Stand behind your ball, aim at the hole, tap to take the photo</div>
-          <div style={{fontSize:11,color:"rgba(201,162,39,.85)",marginTop:4}}>📐 Knee height · hole centered · as low as you can get</div>
+          <div style={{fontSize:12,color:"#8a9e8a",textAlign:"center",padding:"0 24px"}}>Your caddie will tell you exactly how to play it</div>
         </div>
       ):(
-        <div style={{position:"relative",marginBottom:12,borderRadius:16,overflow:"hidden",display:"inline-block",width:"100%"}}>
-          <img ref={imgRef} src={photo} alt="green" style={{width:"100%",display:"block",borderRadius:16}} onLoad={()=>{if(pathPoints.length>0)renderCanvas(pathPoints,slopeGrid,showOverlay);}}/>
-          <canvas ref={canvasRef} style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",pointerEvents:"none",borderRadius:16}}/>
+        <div style={{position:"relative",marginBottom:12,borderRadius:16,overflow:"hidden"}}>
+          <img src={photo} alt="green" style={{width:"100%",display:"block",borderRadius:16}}/>
+          {speaking&&(
+            <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,.3)",display:"flex",alignItems:"center",justifyContent:"center",borderRadius:16}}>
+              <div style={{background:"rgba(0,0,0,.7)",borderRadius:20,padding:"12px 20px",fontSize:14,color:"white"}}>🔊 Caddie speaking…</div>
+            </div>
+          )}
         </div>
       )}
 
       <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={handlePhoto}/>
 
-      {photo&&!result&&(
+      {/* Controls */}
+      {photo&&!read&&(
         <div style={{background:"rgba(13,32,16,.85)",border:"1px solid rgba(42,107,52,.25)",borderRadius:14,padding:"16px",marginBottom:12}}>
           <div style={{marginBottom:14}}>
             <label style={{display:"block",fontSize:10,color:"#8a9e8a",letterSpacing:2,textTransform:"uppercase",marginBottom:8}}>Putt Distance</label>
@@ -3274,7 +3480,7 @@ slopeGrid: 8x8 grid 0.0-1.0. Row 0=top, row 7=bottom. Col 0=left, col 7=right. 0
             <label style={{display:"block",fontSize:10,color:"#8a9e8a",letterSpacing:2,textTransform:"uppercase",marginBottom:8}}>Green Speed</label>
             <div style={{display:"flex",gap:8}}>
               {[{v:"slow",l:"🐢 Slow"},{v:"medium",l:"⛳ Medium"},{v:"fast",l:"🚀 Fast"},{v:"tour",l:"💎 Tour"}].map(s=>(
-                <button key={s.v} onClick={()=>setGreenSpeed(s.v)} style={{flex:1,padding:"10px 6px",borderRadius:10,cursor:"pointer",textAlign:"center",background:greenSpeed===s.v?`linear-gradient(135deg,#7a5f10,#c9a227)`:"rgba(5,14,6,.7)",border:greenSpeed===s.v?"1px solid rgba(201,162,39,.5)":"1px solid rgba(42,107,52,.3)",color:greenSpeed===s.v?C.cream:C.creamMuted}}>
+                <button key={s.v} onClick={()=>setGreenSpeed(s.v)} style={{flex:1,padding:"10px 4px",borderRadius:10,cursor:"pointer",textAlign:"center",background:greenSpeed===s.v?`linear-gradient(135deg,#7a5f10,#c9a227)`:"rgba(5,14,6,.7)",border:greenSpeed===s.v?"1px solid rgba(201,162,39,.5)":"1px solid rgba(42,107,52,.3)",color:greenSpeed===s.v?C.cream:C.creamMuted}}>
                   <div style={{fontSize:11,fontWeight:600}}>{s.l}</div>
                 </button>
               ))}
@@ -3286,137 +3492,49 @@ slopeGrid: 8x8 grid 0.0-1.0. Row 0=top, row 7=bottom. Col 0=left, col 7=right. 0
         </div>
       )}
 
-      {error&&<div style={{background:"rgba(192,64,64,.1)",border:"1px solid rgba(192,64,64,.3)",borderRadius:12,padding:"14px 16px",color:"#e07070",fontSize:13,marginBottom:12}}>{error}</div>}
+      {error&&<div style={{background:"rgba(192,64,64,.1)",border:"1px solid rgba(192,64,64,.3)",borderRadius:12,padding:"14px",color:"#e07070",fontSize:13,marginBottom:12}}>{error}</div>}
 
-      {result&&(
-        <div style={{background:"rgba(13,32,16,.9)",border:"1px solid rgba(42,107,52,.25)",borderRadius:14,padding:"16px 18px",marginBottom:12}}>
-
-          {/* Topo toggle + legend */}
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12,flexWrap:"wrap",gap:8}}>
-            <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-              {[{c:"rgba(30,180,60,0.8)",l:"Flat"},{c:"rgba(200,220,20,0.85)",l:"Mild"},{c:"rgba(255,130,0,0.9)",l:"Steep"},{c:"rgba(220,30,30,0.95)",l:"Very Steep"}].map(g=>(
-                <div key={g.l} style={{display:"flex",alignItems:"center",gap:3}}>
-                  <div style={{width:12,height:12,borderRadius:3,background:g.c,flexShrink:0}}/>
-                  <span style={{fontSize:9,color:"#8a9e8a"}}>{g.l}</span>
-                </div>
-              ))}
+      {/* Caddie read result */}
+      {read&&(
+        <div style={{background:"linear-gradient(135deg,rgba(120,20,100,.15),rgba(13,32,16,.9))",border:"1px solid rgba(180,60,160,.25)",borderRadius:14,padding:"18px",marginBottom:12}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+            <div style={{width:40,height:40,borderRadius:20,background:"linear-gradient(135deg,#7a1070,#c927a8)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>👩</div>
+            <div>
+              <div style={{fontFamily:"'Cinzel',serif",fontSize:13,fontWeight:700,color:"rgba(200,100,180,.9)",letterSpacing:1}}>CADDIE READ</div>
+              <div style={{fontSize:11,color:"#8a9e8a"}}>{puttDist&&`${puttDist}ft · `}{greenSpeed} greens</div>
             </div>
-            <button onClick={()=>setShowOverlay(v=>!v)} style={{background:showOverlay?`linear-gradient(135deg,${C.green},${C.greenLight})`:"rgba(13,32,16,.8)",border:showOverlay?"1px solid rgba(77,184,96,.4)":"1px solid rgba(42,107,52,.3)",borderRadius:8,color:showOverlay?C.cream:C.creamMuted,padding:"6px 12px",fontSize:11,fontWeight:600,cursor:"pointer"}}>
-              {showOverlay?"🗺 Topo On":"🗺 Topo Off"}
-            </button>
+            {speaking?(
+              <button onClick={()=>{stopSpeaking();setSpeaking(false);}} style={{marginLeft:"auto",background:"rgba(255,255,255,.06)",border:"none",borderRadius:8,color:"#8a9e8a",padding:"6px 10px",fontSize:11,cursor:"pointer"}}>⏹ Stop</button>
+            ):(
+              <button onClick={()=>{setSpeaking(true);speakText(read,()=>setSpeaking(false));}} style={{marginLeft:"auto",background:"rgba(255,255,255,.06)",border:"none",borderRadius:8,color:"#8a9e8a",padding:"6px 10px",fontSize:11,cursor:"pointer"}}>🔊 Replay</button>
+            )}
           </div>
+          <div style={{fontSize:16,color:C.cream,lineHeight:1.8,fontStyle:"italic"}}>"{read}"</div>
 
-          {(puttDist||greenSpeed)&&(
-            <div style={{display:"flex",gap:8,marginBottom:12,fontSize:11,color:"#8a9e8a",flexWrap:"wrap"}}>
-              {puttDist&&<span style={{background:"rgba(42,107,52,.2)",borderRadius:6,padding:"3px 8px"}}>📏 {puttDist}ft putt</span>}
-              <span style={{background:"rgba(201,162,39,.1)",borderRadius:6,padding:"3px 8px"}}>⛳ {greenSpeed==="slow"?"Slow":greenSpeed==="medium"?"Medium":greenSpeed==="fast"?"Fast":"Tour"} greens</span>
-            </div>
-          )}
-
-          <div style={{display:"flex",gap:10,marginBottom:12}}>
-            <div style={{background:"rgba(5,14,6,.6)",borderRadius:10,padding:"10px 14px",flex:1,textAlign:"center"}}>
-              <div style={{fontSize:10,color:"#8a9e8a",letterSpacing:2,textTransform:"uppercase",marginBottom:4}}>Break</div>
-              <div style={{fontFamily:"'Cinzel',serif",fontSize:18,fontWeight:700,color:breakColor,textTransform:"capitalize"}}>{result.break}</div>
-            </div>
-            <div style={{background:"rgba(5,14,6,.6)",borderRadius:10,padding:"10px 14px",flex:1,textAlign:"center"}}>
-              <div style={{fontSize:10,color:"#8a9e8a",letterSpacing:2,textTransform:"uppercase",marginBottom:4}}>Severity</div>
-              <div style={{fontFamily:"'Cinzel',serif",fontSize:18,fontWeight:700,color:"#f5f0e8"}}>{result.severity}<span style={{fontSize:11,color:"#8a9e8a"}}>/10</span></div>
-            </div>
-            <div style={{background:"rgba(5,14,6,.6)",borderRadius:10,padding:"10px 14px",flex:1,textAlign:"center"}}>
-              <div style={{fontSize:10,color:"#8a9e8a",letterSpacing:2,textTransform:"uppercase",marginBottom:4}}>Slope</div>
-              <div style={{fontFamily:"'Cinzel',serif",fontSize:18,fontWeight:700,color:"#f5f0e8"}}>{result.uphill?"Up ⬆":"Down ⬇"}</div>
-            </div>
-          </div>
-          <div style={{background:"rgba(201,162,39,.06)",border:"1px solid rgba(201,162,39,.2)",borderRadius:10,padding:"12px 14px",marginBottom:10}}>
-            <div style={{fontSize:10,color:"#8a9e8a",letterSpacing:2,textTransform:"uppercase",marginBottom:6}}>AI Read</div>
-            <div style={{fontSize:14,color:"#f5f0e8",lineHeight:1.6}}>{result.summary}</div>
-          </div>
           {/* Feedback */}
-          <FeedbackWidget result={result} puttDist={puttDist} greenSpeed={greenSpeed}/>
-
-          <button onClick={reset} style={{width:"100%",background:"rgba(255,255,255,.05)",border:"1px solid rgba(42,107,52,.25)",borderRadius:10,color:"#8a9e8a",padding:"11px",fontSize:13,cursor:"pointer",marginTop:10}}>📸 Read Another Green</button>
+          {!feedSaved?(
+            <div style={{marginTop:16,borderTop:"1px solid rgba(42,107,52,.15)",paddingTop:14}}>
+              <div style={{fontSize:11,color:"#8a9e8a",letterSpacing:1,textTransform:"uppercase",marginBottom:8}}>Was this read accurate?</div>
+              <div style={{position:"relative",marginBottom:8}}>
+                <select value={feedback} onChange={e=>setFeedback(e.target.value)} style={{...iStyle(false),appearance:"none",cursor:"pointer",fontSize:13,color:feedback?C.cream:C.creamMuted}}>
+                  <option value="">Select what happened…</option>
+                  {["Read was accurate overall","Break direction was opposite","Break was more severe than shown","Break was less severe than shown","Ball broke late (near hole)","Ball broke early (near ball)","Uphill / downhill was wrong","Green speed tip was too slow","Green speed tip was too fast","No break — it was straight"].map(o=>(
+                    <option key={o} value={o}>{o}</option>
+                  ))}
+                </select>
+                <div style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",pointerEvents:"none",color:C.creamMuted,fontSize:12}}>▼</div>
+              </div>
+              {feedback&&<button onClick={saveFeedback} style={{width:"100%",background:`linear-gradient(135deg,${C.gold},${C.goldDim})`,border:"none",borderRadius:9,color:"#0a1a0c",padding:"10px",fontSize:13,fontWeight:700,cursor:"pointer"}}>Submit Feedback</button>}
+            </div>
+          ):(
+            <div style={{marginTop:12,textAlign:"center",fontSize:13,color:C.greenBright}}>Thanks! Helps the AI get smarter 🎯</div>
+          )}
         </div>
       )}
-    </div>
-  );
-}
 
-// ─── FEEDBACK WIDGET ──────────────────────────────────────────────────────────
-const FEEDBACK_OPTIONS = [
-  "Break direction was opposite",
-  "Break was more severe than shown",
-  "Break was less severe than shown",
-  "Ball broke late (near hole)",
-  "Ball broke early (near ball)",
-  "Uphill / downhill was wrong",
-  "Green speed tip was too slow",
-  "Green speed tip was too fast",
-  "Read was accurate overall",
-  "No break — it was straight",
-];
-
-function FeedbackWidget({result, puttDist, greenSpeed}){
-  const [selection, setSelection] = useState("");
-  const [submitted, setSubmitted] = useState(false);
-  const [saving,    setSaving]    = useState(false);
-
-  async function submitFeedback(){
-    if(!selection)return;
-    setSaving(true);
-    try {
-      const isAccurate=selection==="Read was accurate overall";
-      const entry={
-        id:Date.now().toString(),
-        category:selection,
-        accurate:isAccurate,
-        predictedBreak:result.break,
-        predictedSeverity:result.severity,
-        predictedUphill:result.uphill,
-        puttDist,
-        greenSpeed,
-        timestamp:new Date().toISOString(),
-      };
-      const snap=await getDoc(doc(db,"dtg_data","greenFeedback"));
-      const existing=snap.exists()?(snap.data().entries||[]):[];
-      await setDoc(doc(db,"dtg_data","greenFeedback"),{
-        entries:[entry,...existing].slice(0,500),
-        updatedAt:new Date().toISOString(),
-      });
-      setSubmitted(true);
-    } catch(e){console.error(e);}
-    setSaving(false);
-  }
-
-  if(submitted) return(
-    <div style={{background:"rgba(42,107,52,.15)",border:"1px solid rgba(77,184,96,.25)",borderRadius:10,padding:"12px 14px",textAlign:"center",marginTop:10}}>
-      <div style={{fontSize:13,color:C.greenBright,fontWeight:600}}>Thanks! Helps the AI get smarter 🎯</div>
-    </div>
-  );
-
-  return(
-    <div style={{borderTop:"1px solid rgba(42,107,52,.15)",paddingTop:14,marginTop:4}}>
-      <div style={{fontSize:11,color:"#8a9e8a",letterSpacing:1,textTransform:"uppercase",marginBottom:10}}>How was the read?</div>
-      <div style={{position:"relative",marginBottom:10}}>
-        <select
-          value={selection}
-          onChange={e=>setSelection(e.target.value)}
-          style={{...iStyle(false),appearance:"none",cursor:"pointer",fontSize:13,color:selection?C.cream:C.creamMuted}}
-        >
-          <option value="">Select what happened…</option>
-          {FEEDBACK_OPTIONS.map(o=>(
-            <option key={o} value={o}>{o}</option>
-          ))}
-        </select>
-        <div style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",pointerEvents:"none",color:C.creamMuted,fontSize:12}}>▼</div>
-      </div>
-      <button
-        className="bh"
-        onClick={submitFeedback}
-        disabled={!selection||saving}
-        style={{width:"100%",background:selection?`linear-gradient(135deg,${C.gold},${C.goldDim})`:"rgba(60,60,60,.3)",border:"none",borderRadius:10,color:selection?"#0a1a0c":C.creamMuted,padding:"11px",fontSize:13,fontWeight:700,cursor:selection?"pointer":"not-allowed",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}
-      >
-        {saving?<><Spinner/>Saving…</>:"Submit Feedback"}
-      </button>
+      {read&&(
+        <button onClick={reset} style={{width:"100%",background:"rgba(255,255,255,.05)",border:"1px solid rgba(42,107,52,.2)",borderRadius:10,color:"#8a9e8a",padding:"11px",fontSize:13,cursor:"pointer"}}>📸 Read Another Green</button>
+      )}
     </div>
   );
 }
@@ -3450,6 +3568,7 @@ function CaddyView({members,bags,saveBags}){
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
         <div><div style={{fontFamily:"'Cinzel',serif",fontSize:18,fontWeight:600,color:C.cream}}>🏌️ CADDY</div><div style={{fontSize:12,color:C.creamMuted,marginTop:3}}>Club recommendations based on your bag</div></div>
         <div style={{display:"flex",gap:8}}>
+          <button className="bh" onClick={()=>setSubView("voice")} style={{background:subView==="voice"?`linear-gradient(135deg,#7a1070,#c927a8)`:"rgba(13,32,16,.7)",border:subView==="voice"?"1px solid rgba(180,60,160,.5)":"1px solid rgba(42,107,52,.3)",borderRadius:9,color:subView==="voice"?C.cream:C.creamMuted,padding:"8px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>🎙️ Ask</button>
           <button className="bh" onClick={()=>setSubView("calc")} style={{background:subView==="calc"?`linear-gradient(135deg,${C.green},${C.greenLight})`:"rgba(13,32,16,.7)",border:subView==="calc"?"1px solid rgba(77,184,96,.4)":"1px solid rgba(42,107,52,.3)",borderRadius:9,color:subView==="calc"?C.cream:C.creamMuted,padding:"8px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Calculate</button>
           <button className="bh" onClick={()=>setSubView("green")} style={{background:subView==="green"?`linear-gradient(135deg,#7a5f10,#c9a227)`:"rgba(13,32,16,.7)",border:subView==="green"?"1px solid rgba(201,162,39,.5)":"1px solid rgba(42,107,52,.3)",borderRadius:9,color:subView==="green"?C.cream:C.creamMuted,padding:"8px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>🎯 Green</button>
           <button className="bh" onClick={()=>setSubView("bag")} style={{background:subView==="bag"?`linear-gradient(135deg,${C.green},${C.greenLight})`:"rgba(13,32,16,.7)",border:subView==="bag"?"1px solid rgba(77,184,96,.4)":"1px solid rgba(42,107,52,.3)",borderRadius:9,color:subView==="bag"?C.cream:C.creamMuted,padding:"8px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>My Bag</button>
@@ -3508,7 +3627,8 @@ function CaddyView({members,bags,saveBags}){
         </div>
       )}
 
-      {subView==="green"&&<GreenReader/>}
+      {subView==="voice"&&<VoiceCaddie bags={bags} members={members} currentUser={currentUser}/>}
+      {subView==="green"&&<GreenReader bags={bags} members={members} currentUser={currentUser}/>}
 
       {subView==="bag"&&(
         <div>
