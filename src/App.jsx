@@ -80,6 +80,7 @@ function genGroupId(){return Math.random().toString(36).substring(2,10);}
 const GREENS=["#1a4d24","#1e5c2a","#163d1e","#245e2e","#0f3016","#1d5228","#204f25","#133a1a","#1b4e26","#226030","#112d16"];
 function avatarColor(n){let h=0;for(let i=0;i<n.length;i++)h=n.charCodeAt(i)+((h<<5)-h);return GREENS[Math.abs(h)%GREENS.length];}
 function calcAdjusted(rawYards,wind,windMph,temp,lie){let y=rawYards;const mph=parseFloat(windMph)||0;if(wind==="headwind")y=y*(1+0.01*mph);if(wind==="tailwind")y=y*(1-0.008*mph);if(wind==="crosswind")y=y*(1+0.005*mph);const t=parseFloat(temp)||70;y-=(t-70)*0.15;if(lie==="rough")y=y*1.10;if(lie==="sand")y=y*1.15;return Math.round(y);}
+function getRollout(club,green){const base=(()=>{if(WEDGE_NAMES.includes(club))return 0;if(["9 Iron","8 Iron"].includes(club))return 0.05;if(["7 Iron","6 Iron","5 Iron"].includes(club))return 0.07;if(["4 Iron","3 Iron"].includes(club))return 0.09;if(["4 Hybrid","5 Hybrid"].includes(club))return 0.10;if(["3 Wood","5 Wood","7 Wood","11 Wood"].includes(club))return 0.13;if(club==="Driver")return 0.15;return 0.07;})();if(green==="firm")return base*1.5;if(green==="soft")return base*0.3;return base;}
 
 // ─── CSS ──────────────────────────────────────────────────────────────────────
 const css=`
