@@ -3071,24 +3071,53 @@ function ModelViewerEmbed({glbData, label}){
 
 
 // ─── SPEECH UTILS ─────────────────────────────────────────────────────────────
+function pickFemaleVoice(){
+  const voices = window.speechSynthesis.getVoices();
+  return (
+    voices.find(v=>v.name==="Samantha") ||
+    voices.find(v=>v.name.includes("Samantha")) ||
+    voices.find(v=>v.name.includes("Karen")) ||
+    voices.find(v=>v.name.includes("Moira")) ||
+    voices.find(v=>v.name.includes("Fiona")) ||
+    voices.find(v=>v.name.includes("Google US English Female")) ||
+    voices.find(v=>v.name.includes("Microsoft Zira")) ||
+    voices.find(v=>v.name.includes("Microsoft Eva")) ||
+    voices.find(v=>v.lang==="en-US" && v.name.toLowerCase().includes("female")) ||
+    voices.find(v=>v.lang.startsWith("en") && !v.name.toLowerCase().includes("male")) ||
+    voices.find(v=>v.lang.startsWith("en")) ||
+    voices[0] ||
+    null
+  );
+}
+
 function speakText(text, onEnd){
   if(!window.speechSynthesis) return;
   window.speechSynthesis.cancel();
-  const utt = new SpeechSynthesisUtterance(text);
-  utt.rate=0.95; utt.pitch=1.05; utt.volume=1;
+
+  function doSpeak(){
+    const utt = new SpeechSynthesisUtterance(text);
+    utt.rate=0.92; utt.pitch=1.1; utt.volume=1.0;
+    const voice = pickFemaleVoice();
+    if(voice) utt.voice = voice;
+    utt.onend = onEnd||null;
+    utt.onerror = (e)=>{ console.log("Speech error:",e); if(onEnd) onEnd(); };
+    window.speechSynthesis.speak(utt);
+  }
+
+  // Voices may not be loaded yet — wait if needed
   const voices = window.speechSynthesis.getVoices();
-  const femaleVoice =
-    voices.find(v=>v.name.includes("Samantha"))||
-    voices.find(v=>v.name.includes("Karen"))||
-    voices.find(v=>v.name.includes("Moira"))||
-    voices.find(v=>v.name.includes("Google US English Female"))||
-    voices.find(v=>v.name.includes("Microsoft Zira"))||
-    voices.find(v=>v.lang==="en-US"&&v.name.toLowerCase().includes("female"))||
-    voices.find(v=>v.lang==="en-US");
-  if(femaleVoice) utt.voice=femaleVoice;
-  if(onEnd) utt.onend=onEnd;
-  window.speechSynthesis.speak(utt);
+  if(voices.length > 0){
+    doSpeak();
+  } else {
+    window.speechSynthesis.onvoiceschanged = ()=>{
+      window.speechSynthesis.onvoiceschanged = null;
+      doSpeak();
+    };
+    // Fallback in case onvoiceschanged never fires (some browsers)
+    setTimeout(doSpeak, 500);
+  }
 }
+
 function stopSpeaking(){ if(window.speechSynthesis) window.speechSynthesis.cancel(); }
 
 // ─── VOICE CADDIE (100% local — NO API calls) ─────────────────────────────────
