@@ -3399,8 +3399,16 @@ Now give your read for this putt:`}
 
       const data = await res.json();
       if(data.error) throw new Error(data.error.message);
-      const caddieRead = data.content?.[0]?.text||"";
+      const caddieRead = (data.content?.[0]?.text||"").trim();
       if(!caddieRead) throw new Error("No response");
+      if(caddieRead.includes("NOT_A_GREEN")){
+        const notGreenMsg = "That doesn't look like a putting green. Stand behind your ball on the green, aim at the hole, and take the photo from knee height.";
+        setRead(notGreenMsg);
+        setAnalyzing(false);
+        setSpeaking(true);
+        speakText(notGreenMsg,()=>setSpeaking(false));
+        return;
+      }
       setRead(caddieRead);
       setAnalyzing(false);
       setSpeaking(true);
@@ -3541,7 +3549,7 @@ Now give your read for this putt:`}
 }
 
 // ─── CADDY ────────────────────────────────────────────────────────────────────
-function CaddyView({members,bags,saveBags}){
+function CaddyView({members,bags,saveBags,currentUser}){
   const [subView,   setSubView]   = useState("calc");
   const [player,    setPlayer]    = useState(()=>localStorage.getItem("caddy_player")||"");
   const [yardage,   setYardage]   = useState("");
@@ -3566,13 +3574,23 @@ function CaddyView({members,bags,saveBags}){
 
   return(
     <div className="fi">
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
-        <div><div style={{fontFamily:"'Cinzel',serif",fontSize:18,fontWeight:600,color:C.cream}}>🏌️ CADDY</div><div style={{fontSize:12,color:C.creamMuted,marginTop:3}}>Club recommendations based on your bag</div></div>
-        <div style={{display:"flex",gap:8}}>
-          <button className="bh" onClick={()=>setSubView("voice")} style={{background:subView==="voice"?`linear-gradient(135deg,#7a1070,#c927a8)`:"rgba(13,32,16,.7)",border:subView==="voice"?"1px solid rgba(180,60,160,.5)":"1px solid rgba(42,107,52,.3)",borderRadius:9,color:subView==="voice"?C.cream:C.creamMuted,padding:"8px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>🎙️ Ask</button>
-          <button className="bh" onClick={()=>setSubView("calc")} style={{background:subView==="calc"?`linear-gradient(135deg,${C.green},${C.greenLight})`:"rgba(13,32,16,.7)",border:subView==="calc"?"1px solid rgba(77,184,96,.4)":"1px solid rgba(42,107,52,.3)",borderRadius:9,color:subView==="calc"?C.cream:C.creamMuted,padding:"8px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Calculate</button>
-          <button className="bh" onClick={()=>setSubView("green")} style={{background:subView==="green"?`linear-gradient(135deg,#7a5f10,#c9a227)`:"rgba(13,32,16,.7)",border:subView==="green"?"1px solid rgba(201,162,39,.5)":"1px solid rgba(42,107,52,.3)",borderRadius:9,color:subView==="green"?C.cream:C.creamMuted,padding:"8px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>🎯 Green</button>
-          <button className="bh" onClick={()=>setSubView("bag")} style={{background:subView==="bag"?`linear-gradient(135deg,${C.green},${C.greenLight})`:"rgba(13,32,16,.7)",border:subView==="bag"?"1px solid rgba(77,184,96,.4)":"1px solid rgba(42,107,52,.3)",borderRadius:9,color:subView==="bag"?C.cream:C.creamMuted,padding:"8px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>My Bag</button>
+      {/* Caddy header */}
+      <div style={{marginBottom:16}}>
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:18,fontWeight:700,color:C.cream,marginBottom:4}}>🏌️ CADDY</div>
+        <div style={{fontSize:12,color:C.creamMuted,marginBottom:14}}>Your AI caddie — all tools in one place</div>
+        {/* Segmented control */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",background:"rgba(5,14,6,.8)",borderRadius:12,padding:4,border:"1px solid rgba(42,107,52,.2)"}}>
+          {[
+            {id:"voice", icon:"🎙️", label:"Talk"},
+            {id:"green", icon:"📸", label:"Green"},
+            {id:"calc",  icon:"🎯", label:"Shots"},
+            {id:"bag",   icon:"🎒", label:"My Bag"},
+          ].map(t=>(
+            <button key={t.id} onClick={()=>setSubView(t.id)} style={{padding:"10px 4px",borderRadius:9,border:"none",cursor:"pointer",textAlign:"center",background:subView===t.id?"rgba(42,107,52,.35)":"transparent",transition:"all .15s"}}>
+              <div style={{fontSize:16}}>{t.icon}</div>
+              <div style={{fontSize:10,fontWeight:600,color:subView===t.id?C.cream:C.creamMuted,marginTop:2}}>{t.label}</div>
+            </button>
+          ))}
         </div>
       </div>
 
@@ -3628,8 +3646,16 @@ function CaddyView({members,bags,saveBags}){
         </div>
       )}
 
-      {subView==="voice"&&<VoiceCaddie bags={bags} members={members} currentUser={currentUser}/>}
-      {subView==="green"&&<GreenReader bags={bags} members={members} currentUser={currentUser}/>}
+      {subView==="voice"&&(
+        <div style={{paddingTop:4}}>
+          <VoiceCaddie bags={bags} members={members} currentUser={currentUser}/>
+        </div>
+      )}
+      {subView==="green"&&(
+        <div style={{paddingTop:4}}>
+          <GreenReader bags={bags} members={members} currentUser={currentUser}/>
+        </div>
+      )}
 
       {subView==="bag"&&(
         <div>
