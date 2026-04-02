@@ -3137,8 +3137,7 @@ function VoiceCaddie({bags, members, currentUser, liveTemp, liveWind}){
   const windDir   = liveWind?.dir||"";
   const temp      = liveTemp||70;
 
-  function parseYards(text){
-    const m = text.match(/(\d{2,3})/);
+  function parseYards(text){ const m=text.match(/([0-9]{2,3})/); return m?parseInt(m[1]):null; })/);
     return m ? parseInt(m[1]) : null;
   }
 
