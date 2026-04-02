@@ -3121,7 +3121,7 @@ function speakText(text, onEnd){
 function stopSpeaking(){ if(window.speechSynthesis) window.speechSynthesis.cancel(); }
 
 // ─── VOICE CADDIE (100% local — NO API calls) ─────────────────────────────────
-function VoiceCaddie({bags, members, currentUser}){
+function VoiceCaddie({bags, members, currentUser, liveTemp}){
   const [listening, setListening] = useState(false);
   const [speaking,  setSpeaking]  = useState(false);
   const [transcript,setTranscript]= useState("");
@@ -3182,7 +3182,7 @@ function VoiceCaddie({bags, members, currentUser}){
     }
 
     const {dir:wind, mph:windMph} = parseWind(text);
-    const temp = parseTemp(text);
+    const temp = parseTemp(text) || liveTemp || 70;
     const lie  = parseLie(text);
 
     // Run the same calcAdjusted logic
@@ -3295,6 +3295,9 @@ function VoiceCaddie({bags, members, currentUser}){
             <div style={{fontSize:14,color:C.creamDim,lineHeight:1.7}}>
               Tell me how many yards you are from the pin, which way the wind is blowing, and what your ball's lie is — and I'll pick your club.
             </div>
+            {liveTemp&&(
+              <div style={{fontSize:12,color:C.greenBright,marginTop:8}}>📍 Current temp: {liveTemp}°F — already factored in</div>
+            )}
           </div>
           <div style={{fontSize:10,color:C.creamMuted,letterSpacing:2,textTransform:"uppercase",marginBottom:10}}>Examples</div>
           {[
@@ -3598,6 +3601,8 @@ function CaddyView({members,bags,saveBags,currentUser}){
   const [wind,      setWind]      = useState(()=>localStorage.getItem("caddy_wind")||"none");
   const [windMph,   setWindMph]   = useState(()=>localStorage.getItem("caddy_windMph")||"");
   const [temp,      setTemp]      = useState(()=>localStorage.getItem("caddy_temp")||"70");
+  const [autoTemp,  setAutoTemp]  = useState(null); // live temp from weather API
+  const [tempLabel, setTempLabel] = useState("");
   const [lie,       setLie]       = useState(()=>localStorage.getItem("caddy_lie")||"fairway");
   const [greenCond, setGreenCond] = useState(()=>localStorage.getItem("caddy_green")||"normal");
   const [shotType,  setShotType]  = useState(()=>localStorage.getItem("caddy_shotType")||"carry");
@@ -3607,6 +3612,25 @@ function CaddyView({members,bags,saveBags,currentUser}){
   const [bagSaved,  setBagSaved]  = useState(false);
 
   function save(key,val){localStorage.setItem(key,val);}
+
+  // Auto-fetch current temperature via geolocation + Open-Meteo (no API key needed)
+  useEffect(()=>{
+    if(!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(async pos=>{
+      try {
+        const {latitude:lat, longitude:lon} = pos.coords;
+        const res = await fetch(
+          `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&temperature_unit=fahrenheit`
+        );
+        const data = await res.json();
+        const tempF = Math.round(data.current_weather?.temperature||70);
+        setAutoTemp(tempF);
+        setTemp(String(tempF));
+        setTempLabel(`📍 ${tempF}°F — auto-detected`);
+        save("caddy_temp", String(tempF));
+      } catch(e){ console.log("Weather fetch failed",e); }
+    }, ()=>{ /* location denied — use saved temp */ });
+  },[]);
   function getRollout(club,green){const base=(()=>{if(WEDGE_NAMES.includes(club))return 0;if(["9 Iron","8 Iron"].includes(club))return 0.05;if(["7 Iron","6 Iron","5 Iron"].includes(club))return 0.07;if(["4 Iron","3 Iron"].includes(club))return 0.09;if(["4 Hybrid","5 Hybrid"].includes(club))return 0.10;if(["3 Wood","5 Wood","7 Wood","11 Wood"].includes(club))return 0.13;if(club==="Driver")return 0.15;return 0.07;})();if(green==="firm")return base*1.5;if(green==="soft")return base*0.3;return base;}
   function loadBag(name){setBagPlayer(name);const existing=bags[name.trim().toLowerCase()]||{};const filled={};CLUBS.forEach(c=>{filled[c]=existing[c]||"";});setBagDists(filled);setBagSaved(false);}
   async function saveBag(){if(!bagPlayer)return;const key=bagPlayer.trim().toLowerCase();const cleaned={};CLUBS.forEach(c=>{if(bagDists[c]&&!isNaN(bagDists[c])&&+bagDists[c]>0)cleaned[c]=+bagDists[c];});await saveBags({...bags,[key]:cleaned});setBagSaved(true);setTimeout(()=>setBagSaved(false),2500);}
@@ -3690,7 +3714,7 @@ function CaddyView({members,bags,saveBags,currentUser}){
 
       {subView==="voice"&&(
         <div style={{paddingTop:4}}>
-          <VoiceCaddie bags={bags} members={members} currentUser={currentUser}/>
+          <VoiceCaddie bags={bags} members={members} currentUser={currentUser} liveTemp={autoTemp}/>
         </div>
       )}
       {subView==="green"&&(
