@@ -3263,7 +3263,8 @@ function VoiceCaddie({bags, members, currentUser}){
       setTranscript(text);
       setListening(false);
       const read = getCaddieRead(text);
-      speak(read);
+      setResponse(read);
+      setSpeaking(false); // don't auto-speak — let user tap
     };
     recog.onerror=()=>{ setListening(false); setError("Didn't catch that — tap the mic and speak clearly."); };
     recog.onend=()=>setListening(false);
@@ -3296,7 +3297,7 @@ function VoiceCaddie({bags, members, currentUser}){
             "80 yards from the rough",
             "200 yards with 15 mph tailwind",
           ].map(q=>(
-            <button key={q} onClick={()=>{setTranscript(q); speak(getCaddieRead(q));}} style={{display:"block",width:"100%",background:"rgba(13,32,16,.7)",border:"1px solid rgba(42,107,52,.2)",borderRadius:10,color:C.creamMuted,padding:"11px 14px",fontSize:12,cursor:"pointer",textAlign:"left",marginBottom:6}}>
+            <button key={q} onClick={()=>{const r=getCaddieRead(q);setTranscript(q);setResponse(r);setSpeaking(false);}} style={{display:"block",width:"100%",background:"rgba(13,32,16,.7)",border:"1px solid rgba(42,107,52,.2)",borderRadius:10,color:C.creamMuted,padding:"11px 14px",fontSize:12,cursor:"pointer",textAlign:"left",marginBottom:6}}>
               "{q}"
             </button>
           ))}
@@ -3318,11 +3319,15 @@ function VoiceCaddie({bags, members, currentUser}){
             <div style={{width:36,height:36,borderRadius:18,background:"linear-gradient(135deg,#7a1070,#c927a8)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>👩</div>
             <div style={{fontFamily:"'Cinzel',serif",fontSize:12,fontWeight:700,color:"rgba(200,100,180,.9)",letterSpacing:1}}>CADDIE</div>
             {speaking&&<div style={{fontSize:10,color:"rgba(200,100,180,.6)",marginLeft:4}}>speaking…</div>}
-            {!speaking&&response&&(
-              <button onClick={()=>{setSpeaking(true);speakText(response,()=>setSpeaking(false));}} style={{marginLeft:"auto",background:"rgba(255,255,255,.06)",border:"none",borderRadius:7,color:"#8a9e8a",padding:"5px 10px",fontSize:11,cursor:"pointer"}}>🔊 Replay</button>
-            )}
           </div>
-          <div style={{fontSize:15,color:C.cream,lineHeight:1.7}}>{response}</div>
+          <div style={{fontSize:15,color:C.cream,lineHeight:1.7,marginBottom:14}}>{response}</div>
+          <button
+            onClick={()=>{setSpeaking(true);speakText(response,()=>setSpeaking(false));}}
+            disabled={speaking}
+            style={{width:"100%",background:speaking?"rgba(60,60,60,.3)":`linear-gradient(135deg,#7a1070,#c927a8)`,border:"none",borderRadius:10,color:speaking?C.creamMuted:"white",padding:"12px",fontSize:14,fontWeight:700,cursor:speaking?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}
+          >
+            {speaking?"🔊 Speaking…":"🔊 Tap to Hear"}
+          </button>
         </div>
       )}
 
@@ -3440,8 +3445,7 @@ Now give your read for this putt:`}
       }
       setRead(caddieRead);
       setAnalyzing(false);
-      setSpeaking(true);
-      speakText(caddieRead,()=>setSpeaking(false));
+      setSpeaking(false); // user taps to hear
     } catch(e){
       console.error(e);
       setError("Couldn't read the green — "+e.message);
@@ -3541,13 +3545,17 @@ Now give your read for this putt:`}
               <div style={{fontFamily:"'Cinzel',serif",fontSize:13,fontWeight:700,color:"rgba(200,100,180,.9)",letterSpacing:1}}>CADDIE READ</div>
               <div style={{fontSize:11,color:"#8a9e8a"}}>{puttDist&&`${puttDist}ft · `}{greenSpeed} greens</div>
             </div>
-            {speaking?(
-              <button onClick={()=>{stopSpeaking();setSpeaking(false);}} style={{marginLeft:"auto",background:"rgba(255,255,255,.06)",border:"none",borderRadius:8,color:"#8a9e8a",padding:"6px 10px",fontSize:11,cursor:"pointer"}}>⏹ Stop</button>
-            ):(
-              <button onClick={()=>{setSpeaking(true);speakText(read,()=>setSpeaking(false));}} style={{marginLeft:"auto",background:"rgba(255,255,255,.06)",border:"none",borderRadius:8,color:"#8a9e8a",padding:"6px 10px",fontSize:11,cursor:"pointer"}}>🔊 Replay</button>
-            )}
+              {speaking&&<button onClick={()=>{stopSpeaking();setSpeaking(false);}} style={{marginLeft:"auto",background:"rgba(255,255,255,.06)",border:"none",borderRadius:8,color:"#8a9e8a",padding:"6px 10px",fontSize:11,cursor:"pointer"}}>⏹ Stop</button>}
           </div>
-          <div style={{fontSize:16,color:C.cream,lineHeight:1.8,fontStyle:"italic"}}>"{read}"</div>
+          <div style={{fontSize:16,color:C.cream,lineHeight:1.8,fontStyle:"italic",marginBottom:14}}>"{read}"</div>
+
+          <button
+            onClick={()=>{setSpeaking(true);speakText(read,()=>setSpeaking(false));}}
+            disabled={speaking}
+            style={{width:"100%",background:speaking?"rgba(60,60,60,.3)":`linear-gradient(135deg,#7a1070,#c927a8)`,border:"none",borderRadius:10,color:speaking?C.creamMuted:"white",padding:"12px",fontSize:14,fontWeight:700,cursor:speaking?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8,marginBottom:14}}
+          >
+            {speaking?"🔊 Speaking…":"🔊 Tap to Hear"}
+          </button>
 
           {/* Feedback */}
           {!feedSaved?(
