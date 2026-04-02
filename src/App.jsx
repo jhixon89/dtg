@@ -3287,17 +3287,22 @@ function VoiceCaddie({bags, members, currentUser}){
         </div>
       )}
 
-      {/* Example prompts */}
+      {/* Instruction + examples */}
       {!transcript&&(
         <div style={{marginBottom:20}}>
-          <div style={{fontSize:10,color:C.creamMuted,letterSpacing:2,textTransform:"uppercase",marginBottom:10}}>Try saying…</div>
+          <div style={{background:"rgba(13,32,16,.8)",border:"1px solid rgba(42,107,52,.2)",borderRadius:14,padding:"16px 18px",marginBottom:16}}>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:13,fontWeight:700,color:C.cream,marginBottom:8}}>👩 Your Caddie is Ready</div>
+            <div style={{fontSize:14,color:C.creamDim,lineHeight:1.7}}>
+              Tell me how many yards you are from the pin, which way the wind is blowing, and what your ball's lie is — and I'll pick your club.
+            </div>
+          </div>
+          <div style={{fontSize:10,color:C.creamMuted,letterSpacing:2,textTransform:"uppercase",marginBottom:10}}>Examples</div>
           {[
-            "145 yards",
-            "165 yards into a headwind",
-            "80 yards from the rough",
-            "200 yards with 15 mph tailwind",
+            "145 yards, into the wind, fairway",
+            "80 yards, no wind, out of the rough",
+            "210 yards, 10 mph tailwind, fairway",
           ].map(q=>(
-            <button key={q} onClick={()=>{const r=getCaddieRead(q);setTranscript(q);setResponse(r);setSpeaking(false);}} style={{display:"block",width:"100%",background:"rgba(13,32,16,.7)",border:"1px solid rgba(42,107,52,.2)",borderRadius:10,color:C.creamMuted,padding:"11px 14px",fontSize:12,cursor:"pointer",textAlign:"left",marginBottom:6}}>
+            <button key={q} onClick={()=>{const r=getCaddieRead(q);setTranscript(q);setResponse(r);setSpeaking(false);}} style={{display:"block",width:"100%",background:"rgba(13,32,16,.7)",border:"1px solid rgba(42,107,52,.2)",borderRadius:10,color:C.creamMuted,padding:"11px 14px",fontSize:13,cursor:"pointer",textAlign:"left",marginBottom:8,fontStyle:"italic"}}>
               "{q}"
             </button>
           ))}
