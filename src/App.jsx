@@ -3172,103 +3172,83 @@ function VoiceCaddie({bags, members, currentUser, liveTemp, liveWind}){
   // Core logic — same math as the calculator, no API
   function getCaddieRead(text){
     const yardage = parseYardage(text);
+    if(!yardage) return "I didn't catch a yardage. Tell me how many yards you've got and I'll get you sorted.";
+    if(!hasBag)  return "You haven't set up your bag yet. Head to My Bag and enter your club distances first.";
 
-    if(!yardage){
-      return "I didn't catch a yardage there. Tell me how many yards you've got and I'll pick your club.";
+    const parsedWind   = parseWind(text);
+    const windMentioned= parsedWind.dir!=="none";
+    const windMph      = windMentioned ? parsedWind.mph : (liveWind?.speed||0);
+    const temp         = parseTemp(text)||liveTemp||70;
+    const lie          = parseLie(text);
+    const greenCond    = "normal";
+
+    // Full calculation matching Shots tab exactly
+    function fullCalc(windDir){
+      const adj = calcAdjusted(yardage, windDir, windMph, temp, lie);
+      const ranked = CLUBS.filter(c=>myBag[c]).map(c=>{
+        const carry   = myBag[c];
+        const rollPct = getRollout(c, greenCond);
+        const roll    = Math.round(carry * rollPct);
+        const total   = carry + roll;
+        const diff    = Math.abs(total - adj); // carry+roll vs adjusted
+        const over    = total - adj;
+        return {club:c, carry, roll, total, adj, diff, over};
+      }).sort((a,b)=>a.diff-b.diff);
+      return {adj, top:ranked[0], second:ranked[1], ranked};
     }
 
-    if(!hasBag){
-      return "You haven't set up your bag yet. Head over to the My Bag tab and enter your club distances so I can give you proper recommendations.";
+    // Temp adjustment text
+    const tempDiff = Math.round((temp-70)*0.15);
+    const tempNote = tempDiff!==0 ? `${temp}°F ${tempDiff>0?"adds":"removes"} ${Math.abs(tempDiff)} yard${Math.abs(tempDiff)!==1?"s":""}` : `${temp}°F doesn't change the distance`;
+
+    // Wind note
+    const windNote = (dir, mph) => {
+      if(dir==="none"||mph===0) return "no wind";
+      const adj2 = calcAdjusted(yardage, dir, mph, 70, "fairway") - yardage;
+      return `${mph} mph ${dir} = ${adj2>0?"+":""}${adj2} yards`;
+    };
+
+    // Always give all 3 wind options with full breakdown
+    const hw = fullCalc("headwind");
+    const tw = fullCalc("tailwind");
+    const cw = fullCalc("crosswind");
+    const cl = fullCalc("none"); // calm
+
+    const windInfo = windMph>0
+      ? `${windMph} mph winds`
+      : "no wind detected";
+
+    // Format one option's full detail
+    function fmtOption(label, calc){
+      const {adj, top, second} = calc;
+      if(!top) return `${label}: no club found`;
+      let s = `${label} — plays ${adj} yards. `;
+      s += `${top.club}: ${top.carry} carry plus ${top.roll} roll equals ${top.total} total, ${Math.abs(top.over)} yards ${top.over>=0?"long":"short"}. `;
+      if(second && second.diff<=6){
+        s += `Or the ${second.club}: ${second.carry} carry plus ${second.roll} roll equals ${second.total} total, ${Math.abs(second.over)} yards ${second.over>=0?"long":"short"}. `;
+      }
+      return s;
     }
 
-    const parsedWind = parseWind(text);
-    const windMentioned = parsedWind.dir!=="none";
-    const effectiveWindMph = windMentioned ? parsedWind.mph : (liveWind?.speed||0);
+    let resp = `${yardage} yards. ${tempNote}. ${windInfo}. `;
+    if(lie==="rough")    resp += "You're in the rough. ";
+    if(lie==="sand")     resp += "You're in the sand. ";
+    if(lie==="uphill")   resp += "Uphill lie. ";
+    if(lie==="downhill") resp += "Downhill lie. ";
+    resp += "Here are your three options:
 
-    // Always give all three wind options when there is wind
-    if(effectiveWindMph > 3){
-      const calcForWind=(dir)=>{
-        const adj = calcAdjusted(yardage, dir, effectiveWindMph, liveTemp||70, lie);
-        const ranked = CLUBS.filter(c=>myBag[c])
-          .map(c=>({club:c,diff:Math.abs(myBag[c]-adj)}))
-          .sort((a,b)=>a.diff-b.diff);
-        return ranked[0]?.club||"unknown";
-      };
-      const hw = calcForWind("headwind");
-      const tw = calcForWind("tailwind");
-      const cw = calcForWind("crosswind");
-      const windInfo = windMentioned
-        ? `${parsedWind.mph} mph ${parsedWind.dir}`
-        : `${liveWind?.speed||effectiveWindMph} mph winds`;
-      let resp = `${yardage} yards with ${windInfo} — here are your three options. `;
-      resp += `Into the wind: ${hw}. `;
-      resp += `Downwind: ${tw}. `;
-      resp += `Crosswind: ${cw}. `;
-      if(lie==="rough") resp += "You're in the rough so take an extra club. ";
-      if(lie==="sand")  resp += "From the sand, open the face and swing full. ";
-      resp += "Pick the one that matches your shot.";
-      return resp;
-    }
-
-    const wind    = windMentioned ? parsedWind.dir : "none";
-    const windMph = windMentioned ? parsedWind.mph : 0;
-    const temp = parseTemp(text) || liveTemp || 70;
-    const lie  = parseLie(text);
-
-    // Run the same calcAdjusted logic
-    const adjusted = calcAdjusted(yardage, wind, windMph, temp, lie);
-
-    // Rank clubs by how close they are to adjusted distance
-    const ranked = CLUBS
-      .filter(c => myBag[c])
-      .map(c => {
-        const carry = myBag[c];
-        const rollPct = getRollout(c,"firm");
-        const total = carry + Math.round(carry * rollPct);
-        return { club:c, carry, total, diff:Math.abs(carry - adjusted) };
-      })
-      .sort((a,b) => a.diff - b.diff);
-
-    if(!ranked.length){
-      return "Your bag doesn't seem to have any distances saved. Go to My Bag and enter your yardages.";
-    }
-
-    const top = ranked[0];
-    const second = ranked[1];
-
-    // Build natural spoken response
-    let resp = "";
-
-    // Wind context
-    if(wind==="headwind")      resp += `Into ${windMph} mph of wind, that ${yardage} plays more like ${adjusted}. `;
-    else if(wind==="tailwind") resp += `With ${windMph} mph helping you, that ${yardage} plays more like ${adjusted}. `;
-    else if(wind==="crosswind") resp += `With a crosswind, add a little extra. `;
-    else                        resp += `${yardage} yards. `;
-
-    // Lie context
-    if(lie==="rough")  resp += "Out of the rough, take an extra club. ";
-    if(lie==="sand")   resp += "From the sand, open the face and swing full. ";
-    if(lie==="uphill") resp += "Uphill lie — the ball will fly shorter, commit to the shot. ";
-    if(lie==="downhill") resp += "Downhill lie — it'll fly a bit farther, be smart with it. ";
-
-    // Club recommendation
-    resp += `I've got you hitting ${top.club}. `;
-
-    // Between clubs
-    if(second && second.diff < 8){
-      resp += `You're right between the ${top.club} and ${second.club} — go with the ${top.club} and make a smooth swing. `;
-    }
-
-    // Encouragement
-    const encouragements = [
-      "You've got this.",
-      "Trust the number.",
-      "Commit to it.",
-      "Smooth swing, good contact.",
-      "Pick a target and trust it.",
-    ];
-    resp += encouragements[Math.floor(Math.random()*encouragements.length)];
-
+";
+    resp += fmtOption("⬆️ Headwind", hw);
+    resp += "
+";
+    resp += fmtOption("⬇️ Tailwind", tw);
+    resp += "
+";
+    resp += fmtOption("↔️ Crosswind", cw);
+    if(windMph===0){ resp += "
+"; resp += fmtOption("🏳️ No Wind", cl); }
+    resp += "
+Pick the option that matches your shot.";
     return resp;
   }
 
@@ -3360,7 +3340,7 @@ function VoiceCaddie({bags, members, currentUser, liveTemp, liveWind}){
             <div style={{fontFamily:"'Cinzel',serif",fontSize:12,fontWeight:700,color:"rgba(200,100,180,.9)",letterSpacing:1}}>CADDIE</div>
             {speaking&&<div style={{fontSize:10,color:"rgba(200,100,180,.6)",marginLeft:4}}>speaking…</div>}
           </div>
-          <div style={{fontSize:15,color:C.cream,lineHeight:1.7,marginBottom:14}}>{response}</div>
+          <div style={{fontSize:14,color:C.cream,lineHeight:1.9,marginBottom:14,whiteSpace:"pre-line",maxHeight:320,overflowY:"auto",padding:"4px 0"}}>{response}</div>
           <button
             onClick={()=>{setSpeaking(true);speakText(response,()=>setSpeaking(false));}}
             disabled={speaking}
