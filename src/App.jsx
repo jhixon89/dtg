@@ -3173,7 +3173,10 @@ function VoiceCaddie({bags, members, currentUser, liveTemp, liveWind}){
   function getCaddieRead(text){
     const yardage = parseYardage(text);
     if(!yardage) return "I didn't catch a yardage. Tell me how many yards you've got and I'll get you sorted.";
-    if(!hasBag)  return "You haven't set up your bag yet. Head to My Bag and enter your club distances first.";
+    if(!hasBag){
+      const bagKeys = Object.keys(myBag);
+      return `Your bag appears empty (player: "${myName}", keys found: ${bagKeys.length}). Head to My Bag tab, select your name, enter your distances, and tap Save Bag.`;
+    }
 
     const parsedWind   = parseWind(text);
     const windMentioned= parsedWind.dir!=="none";
@@ -3317,7 +3320,7 @@ Pick the option that matches your shot.";
             "80 yards, no wind, out of the rough",
             "210 yards, 10 mph tailwind, fairway",
           ].map(q=>(
-            <button key={q} onClick={()=>{const r=getCaddieRead(q);setTranscript(q);setResponse(r);setSpeaking(false);}} style={{display:"block",width:"100%",background:"rgba(13,32,16,.7)",border:"1px solid rgba(42,107,52,.2)",borderRadius:10,color:C.creamMuted,padding:"11px 14px",fontSize:13,cursor:"pointer",textAlign:"left",marginBottom:8,fontStyle:"italic"}}>
+            <button key={q} onClick={()=>{let r;try{r=getCaddieRead(q);}catch(e){r="Error: "+e.message;}setTranscript(q);setResponse(r||"No response — check your bag is set up in My Bag.");setSpeaking(false);}} style={{display:"block",width:"100%",background:"rgba(13,32,16,.7)",border:"1px solid rgba(42,107,52,.2)",borderRadius:10,color:C.creamMuted,padding:"11px 14px",fontSize:13,cursor:"pointer",textAlign:"left",marginBottom:8,fontStyle:"italic"}}>
               "{q}"
             </button>
           ))}
