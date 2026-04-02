@@ -343,20 +343,28 @@ function CreateRoundPostModal({currentUser, onPost, onClose}){
 
 // ─── FOLLOW BUTTON ───────────────────────────────────────────────────────────
 function FollowButton({targetUid, targetName, currentUser}){
-  const [following,   setFollowing]   = useState(false);
-  const [requested,   setRequested]   = useState(false);
-  const [loading,     setLoading]     = useState(true);
+  const [following, setFollowing] = useState(false);
+  const [isFriend,  setIsFriend]  = useState(false);
+  const [reqSent,   setReqSent]   = useState(false);
+  const [loading,   setLoading]   = useState(true);
 
   useEffect(()=>{
-    const unsub=onSnapshot(doc(db,"userFollowing",currentUser.uid),snap=>{
-      const data=snap.exists()?snap.data():{};
-      setFollowing(!!(data.uids||[]).includes(targetUid));
+    async function checkStatus(){
+      const [mySnap, reqSnap, theirSnap] = await Promise.all([
+        getDoc(doc(db,"userFollowing",currentUser.uid)),
+        getDoc(doc(db,"friendRequests",currentUser.uid+"_"+targetUid)),
+        getDoc(doc(db,"userFollowing",targetUid)),
+      ]);
+      const myUids=mySnap.exists()?(mySnap.data().uids||[]):[];
+      const theirUids=theirSnap.exists()?(theirSnap.data().uids||[]):[];
+      const isFollowing=myUids.includes(targetUid);
+      const friend=isFollowing&&theirUids.includes(currentUser.uid);
+      setFollowing(isFollowing);
+      setIsFriend(friend);
+      if(reqSnap.exists()&&reqSnap.data().status==="pending") setReqSent(true);
       setLoading(false);
-    });
-    const unsubReq=onSnapshot(doc(db,"friendRequests",currentUser.uid+"_"+targetUid),snap=>{
-      setRequested(snap.exists());
-    });
-    return()=>{unsub();unsubReq();};
+    }
+    checkStatus();
   },[targetUid,currentUser.uid]);
 
   async function toggleFollow(){
@@ -365,27 +373,24 @@ function FollowButton({targetUid, targetName, currentUser}){
     const uids=snap.exists()?(snap.data().uids||[]):[];
     if(following){
       await setDoc(ref,{uids:uids.filter(u=>u!==targetUid)},{merge:true});
+      setFollowing(false);setIsFriend(false);
     } else {
       await setDoc(ref,{uids:[...uids,targetUid]},{merge:true});
-      // Also add to target's followers
       const fRef=doc(db,"userFollowers",targetUid);
       const fSnap=await getDoc(fRef);
       const fuids=fSnap.exists()?(fSnap.data().uids||[]):[];
       await setDoc(fRef,{uids:[...fuids,currentUser.uid]},{merge:true});
+      setFollowing(true);
     }
   }
 
   async function sendFriendRequest(){
-    if(requested)return;
+    if(reqSent||isFriend)return;
     await setDoc(doc(db,"friendRequests",currentUser.uid+"_"+targetUid),{
-      fromUid:currentUser.uid,
-      fromName:currentUser.displayName||"",
-      toUid:targetUid,
-      toName:targetName,
-      status:"pending",
-      sentAt:new Date().toISOString(),
+      fromUid:currentUser.uid,fromName:currentUser.displayName||"",
+      toUid:targetUid,toName:targetName,status:"pending",sentAt:new Date().toISOString(),
     });
-    setRequested(true);
+    setReqSent(true);
   }
 
   if(loading)return null;
@@ -395,21 +400,26 @@ function FollowButton({targetUid, targetName, currentUser}){
       <button className="bh" onClick={toggleFollow} style={{background:following?`rgba(42,107,52,.2)`:`linear-gradient(135deg,${C.green},${C.greenLight})`,border:following?"1px solid rgba(77,184,96,.3)":"none",borderRadius:8,color:following?C.greenBright:C.cream,padding:"6px 12px",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
         {following?"✓ Following":"Follow"}
       </button>
-      <button className="bh" onClick={sendFriendRequest} disabled={requested} style={{background:requested?"rgba(255,255,255,.04)":"rgba(255,255,255,.06)",border:"1px solid rgba(255,255,255,.1)",borderRadius:8,color:requested?C.creamMuted:C.creamDim,padding:"6px 10px",fontSize:11,cursor:requested?"default":"pointer",whiteSpace:"nowrap"}}>
-        {requested?"Sent ✓":"+ Friend"}
-      </button>
+      {isFriend?(
+        <div style={{background:"rgba(42,107,52,.15)",border:"1px solid rgba(77,184,96,.2)",borderRadius:8,color:C.greenBright,padding:"6px 10px",fontSize:11,fontWeight:600,whiteSpace:"nowrap"}}>👥 Friends</div>
+      ):(
+        <button className="bh" onClick={sendFriendRequest} disabled={reqSent} style={{background:reqSent?"rgba(255,255,255,.04)":"rgba(255,255,255,.06)",border:"1px solid rgba(255,255,255,.1)",borderRadius:8,color:reqSent?C.creamMuted:C.creamDim,padding:"6px 10px",fontSize:11,cursor:reqSent?"default":"pointer",whiteSpace:"nowrap"}}>
+          {reqSent?"Sent ✓":"+ Friend"}
+        </button>
+      )}
     </div>
   );
 }
 
 // ─── MATCH POST CARD ──────────────────────────────────────────────────────────
 function MatchPostCard({post, currentUser, onJoin, onLeave, onDelete, isOwner}){
-  const [showCmts,  setShowCmts]  = useState(false);
-  const [imgFull,   setImgFull]   = useState(false);
-  const [cText,     setCText]     = useState("");
-  const [showMenu,  setShowMenu]  = useState(false);
-  const [confirmDel,setConfirmDel]= useState(false);
-  const [showPlayers,setShowPlayers]= useState(false);
+  const [showCmts,      setShowCmts]      = useState(false);
+  const [imgFull,       setImgFull]       = useState(false);
+  const [cText,         setCText]         = useState("");
+  const [showMenu,      setShowMenu]      = useState(false);
+  const [confirmDel,    setConfirmDel]    = useState(false);
+  const [showPlayers,   setShowPlayers]   = useState(false);
+  const [showAuthorProfile,setShowAuthorProfile] = useState(false);
 
   const players = post.players||[];
   const totalSpots = post.totalSpots||4;
@@ -463,6 +473,9 @@ function MatchPostCard({post, currentUser, onJoin, onLeave, onDelete, isOwner}){
             <button onClick={()=>setShowPlayers(false)} style={{width:"100%",background:"rgba(255,255,255,.06)",border:"none",borderRadius:12,color:C.creamMuted,padding:"13px",fontSize:14,cursor:"pointer",marginTop:8}}>Close</button>
           </div>
         </div>
+      )}
+      {showAuthorProfile&&post.authorUid&&(
+        <UserProfileModal uid={post.authorUid} displayName={post.authorName||""} currentUser={currentUser} onClose={()=>setShowAuthorProfile(false)}/>
       )}
       {confirmDel&&(
         <div style={{position:"fixed",inset:0,zIndex:400,background:"rgba(0,0,0,.85)",backdropFilter:"blur(6px)",display:"flex",alignItems:"flex-end",justifyContent:"center",padding:"0 0 40px"}}>
@@ -1774,11 +1787,154 @@ function PeopleTab({currentUser, suggestions, loading, onLoad}){
   );
 }
 
+
+// ─── USER PROFILE MODAL ───────────────────────────────────────────────────────
+function UserProfileModal({uid, displayName, currentUser, onClose}){
+  const [profile,   setProfile]   = useState(null);
+  const [following, setFollowing] = useState(false);
+  const [isFriend,  setIsFriend]  = useState(false);
+  const [reqSent,   setReqSent]   = useState(false);
+  const [loading,   setLoading]   = useState(true);
+
+  useEffect(()=>{
+    async function load(){
+      // Load profile
+      const [pd, ud, followSnap, reqSnap] = await Promise.all([
+        getDoc(doc(db,"userProfiles",uid)),
+        getDoc(doc(db,"users",uid)),
+        getDoc(doc(db,"userFollowing",currentUser.uid)),
+        getDoc(doc(db,"friendRequests",currentUser.uid+"_"+uid)),
+      ]);
+      const base=ud.exists()?ud.data():{};
+      const prof=pd.exists()?pd.data():{};
+      setProfile({...base,...prof,uid});
+      const uids=followSnap.exists()?(followSnap.data().uids||[]):[];
+      setFollowing(uids.includes(uid));
+      if(reqSnap.exists()) setReqSent(true);
+      // Check mutual follow = friends
+      const theirSnap=await getDoc(doc(db,"userFollowing",uid));
+      const theirUids=theirSnap.exists()?(theirSnap.data().uids||[]):[];
+      setIsFriend(uids.includes(uid)&&theirUids.includes(currentUser.uid));
+      setLoading(false);
+    }
+    load();
+  },[uid]);
+
+  async function toggleFollow(){
+    const ref=doc(db,"userFollowing",currentUser.uid);
+    const snap=await getDoc(ref);
+    const uids=snap.exists()?(snap.data().uids||[]):[];
+    if(following){
+      await setDoc(ref,{uids:uids.filter(u=>u!==uid)},{merge:true});
+      setFollowing(false);setIsFriend(false);
+    } else {
+      await setDoc(ref,{uids:[...uids,uid]},{merge:true});
+      const fRef=doc(db,"userFollowers",uid);
+      const fSnap=await getDoc(fRef);
+      const fuids=fSnap.exists()?(fSnap.data().uids||[]):[];
+      await setDoc(fRef,{uids:[...fuids,currentUser.uid]},{merge:true});
+      setFollowing(true);
+    }
+  }
+
+  async function sendRequest(){
+    if(reqSent||isFriend)return;
+    await setDoc(doc(db,"friendRequests",currentUser.uid+"_"+uid),{
+      fromUid:currentUser.uid,fromName:currentUser.displayName||"",
+      toUid:uid,toName:displayName||"",status:"pending",sentAt:new Date().toISOString(),
+    });
+    setReqSent(true);
+  }
+
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:500,background:"rgba(0,0,0,.88)",backdropFilter:"blur(8px)",display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={onClose}>
+      <div style={{background:"#1a3a1e",border:"1px solid rgba(42,107,52,.3)",borderRadius:"20px 20px 0 0",padding:"24px 20px 48px",width:"100%",maxWidth:480,maxHeight:"85vh",overflowY:"auto",fontFamily:"'DM Sans',sans-serif"}} onClick={e=>e.stopPropagation()}>
+        <div style={{width:36,height:4,background:"rgba(255,255,255,.2)",borderRadius:2,margin:"0 auto 20px"}}/>
+
+        {loading?(
+          <div style={{textAlign:"center",padding:"40px"}}><Spinner/></div>
+        ):(
+          <>
+            {/* Avatar + name */}
+            <div style={{display:"flex",flexDirection:"column",alignItems:"center",marginBottom:20}}>
+              <Avatar name={profile?.displayName||displayName||""} photo={profile?.profilePhoto||null} size={80} radius={40}/>
+              <div style={{fontFamily:"'Cinzel',serif",fontSize:20,fontWeight:700,color:C.cream,marginTop:12}}>{profile?.displayName||displayName}</div>
+              {profile?.homeCourse&&<div style={{fontSize:13,color:C.creamMuted,marginTop:4}}>🏌️ {profile.homeCourse}</div>}
+            </div>
+
+            {/* Stats row */}
+            <div style={{display:"flex",gap:10,marginBottom:20}}>
+              {profile?.estimatedHandicap&&(
+                <div style={{flex:1,background:"rgba(13,32,16,.8)",border:"1px solid rgba(42,107,52,.2)",borderRadius:12,padding:"12px",textAlign:"center"}}>
+                  <div style={{fontSize:10,color:C.creamMuted,letterSpacing:2,textTransform:"uppercase",marginBottom:4}}>Handicap</div>
+                  <div style={{fontFamily:"'Cinzel',serif",fontSize:22,fontWeight:700,color:C.goldLight}}>{profile.estimatedHandicap}</div>
+                </div>
+              )}
+              {isFriend&&(
+                <div style={{flex:1,background:"rgba(42,107,52,.15)",border:"1px solid rgba(77,184,96,.2)",borderRadius:12,padding:"12px",textAlign:"center"}}>
+                  <div style={{fontSize:22}}>👥</div>
+                  <div style={{fontSize:11,color:C.greenBright,fontWeight:600,marginTop:4}}>Friends</div>
+                </div>
+              )}
+            </div>
+
+            {/* Bio */}
+            {profile?.bio&&(
+              <div style={{background:"rgba(13,32,16,.7)",border:"1px solid rgba(42,107,52,.15)",borderRadius:12,padding:"14px 16px",marginBottom:20}}>
+                <div style={{fontSize:10,color:C.creamMuted,letterSpacing:2,textTransform:"uppercase",marginBottom:6}}>About</div>
+                <div style={{fontSize:14,color:C.creamDim,lineHeight:1.6}}>{profile.bio}</div>
+              </div>
+            )}
+
+            {/* Action buttons */}
+            {uid!==currentUser.uid&&(
+              <div style={{display:"flex",gap:10}}>
+                <button className="bh" onClick={toggleFollow} style={{flex:1,background:following?`rgba(42,107,52,.2)`:`linear-gradient(135deg,${C.green},${C.greenLight})`,border:following?"1px solid rgba(77,184,96,.3)":"none",borderRadius:12,color:following?C.greenBright:C.cream,padding:"13px",fontSize:14,fontWeight:700,cursor:"pointer"}}>
+                  {following?"✓ Following":"Follow"}
+                </button>
+                {!isFriend&&(
+                  <button className="bh" onClick={sendRequest} disabled={reqSent} style={{flex:1,background:reqSent?"rgba(255,255,255,.04)":"rgba(255,255,255,.08)",border:"1px solid rgba(255,255,255,.1)",borderRadius:12,color:reqSent?C.creamMuted:C.creamDim,padding:"13px",fontSize:14,fontWeight:600,cursor:reqSent?"default":"pointer"}}>
+                    {reqSent?"Sent ✓":"+ Friend"}
+                  </button>
+                )}
+                {isFriend&&(
+                  <div style={{flex:1,background:"rgba(42,107,52,.15)",border:"1px solid rgba(77,184,96,.2)",borderRadius:12,color:C.greenBright,padding:"13px",fontSize:14,fontWeight:600,textAlign:"center"}}>
+                    👥 Friends
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── PERSON CARD ──────────────────────────────────────────────────────────────
 function PersonCard({person, currentUser, isFollowing, onFollowChange}){
-  const [following,  setFollowing]  = useState(isFollowing);
-  const [requested,  setRequested]  = useState(false);
-  const [saving,     setSaving]     = useState(false);
+  const [following,   setFollowing]   = useState(isFollowing);
+  const [isFriend,    setIsFriend]    = useState(false);
+  const [reqSent,     setReqSent]     = useState(false);
+  const [saving,      setSaving]      = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
+
+  // Check real friend/follow status on mount
+  useEffect(()=>{
+    async function checkStatus(){
+      const [followSnap, reqSnap, theirSnap] = await Promise.all([
+        getDoc(doc(db,"userFollowing",currentUser.uid)),
+        getDoc(doc(db,"friendRequests",currentUser.uid+"_"+person.uid)),
+        getDoc(doc(db,"userFollowing",person.uid)),
+      ]);
+      const myUids=followSnap.exists()?(followSnap.data().uids||[]):[];
+      const theirUids=theirSnap.exists()?(theirSnap.data().uids||[]):[];
+      setFollowing(myUids.includes(person.uid));
+      setIsFriend(myUids.includes(person.uid)&&theirUids.includes(currentUser.uid));
+      if(reqSnap.exists()&&reqSnap.data().status==="pending") setReqSent(true);
+    }
+    checkStatus();
+  },[person.uid]);
 
   async function toggleFollow(){
     setSaving(true);
@@ -1787,62 +1943,112 @@ function PersonCard({person, currentUser, isFollowing, onFollowChange}){
     const uids=snap.exists()?(snap.data().uids||[]):[];
     if(following){
       await setDoc(ref,{uids:uids.filter(u=>u!==person.uid)},{merge:true});
-      setFollowing(false);
-      onFollowChange(person.uid);
+      setFollowing(false);setIsFriend(false);onFollowChange(person.uid);
     } else {
       await setDoc(ref,{uids:[...uids,person.uid]},{merge:true});
-      // Add to their followers
       const fRef=doc(db,"userFollowers",person.uid);
       const fSnap=await getDoc(fRef);
       const fuids=fSnap.exists()?(fSnap.data().uids||[]):[];
       await setDoc(fRef,{uids:[...fuids,currentUser.uid]},{merge:true});
-      setFollowing(true);
-      onFollowChange(person.uid);
+      setFollowing(true);onFollowChange(person.uid);
     }
     setSaving(false);
   }
 
   async function sendRequest(){
-    if(requested)return;
-    const inviteId=currentUser.uid+"_"+person.uid;
-    await setDoc(doc(db,"friendRequests",inviteId),{
-      fromUid:currentUser.uid,
-      fromName:currentUser.displayName||"",
-      toUid:person.uid,
-      toName:person.displayName||"",
-      status:"pending",
-      sentAt:new Date().toISOString(),
+    if(reqSent||isFriend)return;
+    await setDoc(doc(db,"friendRequests",currentUser.uid+"_"+person.uid),{
+      fromUid:currentUser.uid,fromName:currentUser.displayName||"",
+      toUid:person.uid,toName:person.displayName||"",
+      status:"pending",sentAt:new Date().toISOString(),
     });
-    setRequested(true);
+    setReqSent(true);
   }
 
   return(
-    <div style={{background:"rgba(13,32,16,.8)",border:"1px solid rgba(42,107,52,.2)",borderRadius:16,padding:"16px 18px",marginBottom:10,display:"flex",alignItems:"center",gap:12}}>
-      <Avatar name={person.displayName||""} photo={person.profilePhoto||null} size={52} radius={26}/>
-      <div style={{flex:1,minWidth:0}}>
-        <div style={{fontWeight:600,fontSize:15,color:C.cream}}>{person.displayName||"DTG Golfer"}</div>
-        {person.homeCourse&&<div style={{fontSize:12,color:C.creamMuted,marginTop:2}}>🏌️ {person.homeCourse}</div>}
-        {person.bio&&<div style={{fontSize:12,color:C.creamMuted,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:180}}>{person.bio}</div>}
-        {person.mutuals>0&&<div style={{fontSize:11,color:C.greenBright,marginTop:3}}>🔗 {person.mutuals} mutual connection{person.mutuals!==1?"s":""}</div>}
+    <>
+      {showProfile&&<UserProfileModal uid={person.uid} displayName={person.displayName||""} currentUser={currentUser} onClose={()=>setShowProfile(false)}/>}
+      <div style={{background:"rgba(13,32,16,.8)",border:"1px solid rgba(42,107,52,.2)",borderRadius:16,padding:"16px 18px",marginBottom:10,display:"flex",alignItems:"center",gap:12}}>
+        <div onClick={()=>setShowProfile(true)} style={{cursor:"pointer",flexShrink:0}}>
+          <Avatar name={person.displayName||""} photo={person.profilePhoto||null} size={52} radius={26}/>
+        </div>
+        <div style={{flex:1,minWidth:0}} onClick={()=>setShowProfile(true)} style={{flex:1,minWidth:0,cursor:"pointer"}}>
+          <div style={{fontWeight:600,fontSize:15,color:C.cream}}>{person.displayName||"DTG Golfer"}</div>
+          {person.homeCourse&&<div style={{fontSize:12,color:C.creamMuted,marginTop:2}}>🏌️ {person.homeCourse}</div>}
+          {person.estimatedHandicap&&<div style={{fontSize:12,color:C.goldLight,marginTop:2}}>HCP {person.estimatedHandicap}</div>}
+          {person.mutuals>0&&<div style={{fontSize:11,color:C.greenBright,marginTop:3}}>🔗 {person.mutuals} mutual{person.mutuals!==1?"s":""}</div>}
+          {isFriend&&<div style={{fontSize:11,color:C.greenBright,marginTop:3}}>👥 Friends</div>}
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:7,flexShrink:0}}>
+          <button className="bh" onClick={toggleFollow} disabled={saving} style={{background:following?`rgba(42,107,52,.2)`:`linear-gradient(135deg,${C.green},${C.greenLight})`,border:following?"1px solid rgba(77,184,96,.3)":"none",borderRadius:9,color:following?C.greenBright:C.cream,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
+            {saving?<Spinner/>:following?"✓ Following":"Follow"}
+          </button>
+          {isFriend?(
+            <div style={{background:"rgba(42,107,52,.15)",border:"1px solid rgba(77,184,96,.2)",borderRadius:9,color:C.greenBright,padding:"7px 14px",fontSize:12,fontWeight:600,textAlign:"center",whiteSpace:"nowrap"}}>👥 Friends</div>
+          ):(
+            <button className="bh" onClick={sendRequest} disabled={reqSent} style={{background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.1)",borderRadius:9,color:reqSent?C.creamMuted:C.creamDim,padding:"7px 14px",fontSize:12,cursor:reqSent?"default":"pointer",whiteSpace:"nowrap",fontWeight:600}}>
+              {reqSent?"Sent ✓":"+ Friend"}
+            </button>
+          )}
+        </div>
       </div>
-      <div style={{display:"flex",flexDirection:"column",gap:7,flexShrink:0}}>
-        <button
-          className="bh"
-          onClick={toggleFollow}
-          disabled={saving}
-          style={{background:following?`rgba(42,107,52,.2)`:`linear-gradient(135deg,${C.green},${C.greenLight})`,border:following?"1px solid rgba(77,184,96,.3)":"none",borderRadius:9,color:following?C.greenBright:C.cream,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}
-        >
-          {saving?<Spinner/>:following?"✓ Following":"Follow"}
-        </button>
-        <button
-          className="bh"
-          onClick={sendRequest}
-          disabled={requested}
-          style={{background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.1)",borderRadius:9,color:requested?C.creamMuted:C.creamDim,padding:"7px 14px",fontSize:12,cursor:requested?"default":"pointer",whiteSpace:"nowrap",fontWeight:600}}
-        >
-          {requested?"Sent ✓":"+ Friend"}
-        </button>
+    </>
+  );
+}
+
+
+// ─── FEED SEARCH ──────────────────────────────────────────────────────────────
+function FeedSearch({posts, currentUser}){
+  const [query,       setQuery]       = useState("");
+  const [showSearch,  setShowSearch]  = useState(false);
+  const [results,     setResults]     = useState([]);
+
+  function search(text){
+    setQuery(text);
+    if(!text.trim()){setResults([]);return;}
+    const lower=text.toLowerCase();
+    const matched=posts
+      .filter(p=>(
+        (p.caption||"").toLowerCase().includes(lower)||
+        (p.course||"").toLowerCase().includes(lower)||
+        (p.authorName||"").toLowerCase().includes(lower)
+      ))
+      .sort((a,b)=>new Date(b.createdAt||0)-new Date(a.createdAt||0));
+    setResults(matched);
+  }
+
+  if(!showSearch) return(
+    <div style={{padding:"10px 16px 0"}}>
+      <button onClick={()=>setShowSearch(true)} style={{width:"100%",background:"rgba(13,32,16,.8)",border:"1px solid rgba(42,107,52,.25)",borderRadius:12,color:C.creamMuted,padding:"11px 16px",fontSize:13,cursor:"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:8}}>
+        <span style={{fontSize:14}}>🔍</span>
+        <span>Search posts…</span>
+      </button>
+    </div>
+  );
+
+  return(
+    <div style={{padding:"10px 16px 0"}}>
+      <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:12}}>
+        <input
+          value={query}
+          onChange={e=>search(e.target.value)}
+          placeholder="Search posts by keyword, course, or name…"
+          autoFocus
+          style={{...iStyle(false),flex:1,fontSize:13}}
+        />
+        <button onClick={()=>{setShowSearch(false);setQuery("");setResults([]);}} style={{background:"none",border:"none",color:C.creamMuted,fontSize:13,cursor:"pointer",whiteSpace:"nowrap"}}>✕ Cancel</button>
       </div>
+      {query.trim()&&(
+        <div style={{marginBottom:8}}>
+          <div style={{fontSize:12,color:C.creamMuted,marginBottom:10}}>
+            {results.length} result{results.length!==1?"s":""} for "{query}"
+          </div>
+          {results.length===0&&<Empty msg="No posts found — try a different keyword"/>}
+          {results.map(post=>(
+            <MatchPostCard key={post.id} post={post} currentUser={currentUser} onJoin={()=>{}} onLeave={()=>{}} onDelete={()=>{}} isOwner={post.authorUid===currentUser.uid}/>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -2215,6 +2421,8 @@ function HomeScreen({currentUser, onSelectGroup}){
       {/* FEED TAB */}
       {tab==="feed"&&(
         <div style={{maxWidth:520,margin:"0 auto"}}>
+          {/* Search bar */}
+          <FeedSearch posts={feedPosts} currentUser={currentUser}/>
           {feedLoading&&(
             <div style={{textAlign:"center",padding:"60px"}}><Spinner/></div>
           )}
@@ -3326,6 +3534,7 @@ function Avatar({name, photo, size=40, radius=10}){
 function ProfileEditModal({currentUser, profile, onSave, onClose}){
   const [bio,       setBio]       = useState(profile?.bio||"");
   const [homeCourse,setHomeCourse]= useState(profile?.homeCourse||"");
+  const [handicap,  setHandicap]  = useState(profile?.estimatedHandicap||"");
   const [photoData, setPhotoData] = useState(profile?.profilePhoto||null);
   const [saving,    setSaving]    = useState(false);
   const fileRef = useRef(null);
@@ -3339,7 +3548,7 @@ function ProfileEditModal({currentUser, profile, onSave, onClose}){
 
   async function handleSave(){
     setSaving(true);
-    await onSave({bio:bio.trim(),homeCourse:homeCourse.trim(),profilePhoto:photoData});
+    await onSave({bio:bio.trim(),homeCourse:homeCourse.trim(),estimatedHandicap:handicap.trim(),profilePhoto:photoData});
     setSaving(false);
     onClose();
   }
@@ -3366,6 +3575,9 @@ function ProfileEditModal({currentUser, profile, onSave, onClose}){
         <div style={{display:"flex",flexDirection:"column",gap:16}}>
           <Field label="Home Course">
             <input value={homeCourse} onChange={e=>setHomeCourse(e.target.value)} placeholder="e.g. Juliette Falls Golf Course" style={iStyle(false)}/>
+          </Field>
+          <Field label="Estimated Handicap">
+            <input value={handicap} onChange={e=>setHandicap(e.target.value)} placeholder="e.g. 12.4" style={iStyle(false)}/>
           </Field>
           <Field label="Bio">
             <textarea value={bio} onChange={e=>setBio(e.target.value)} placeholder="Tell the crew a little about yourself…" rows={3} style={{...iStyle(false),resize:"none",fontFamily:"'DM Sans',sans-serif"}}/>
