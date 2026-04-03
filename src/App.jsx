@@ -3179,22 +3179,38 @@ function VoiceCaddie({bags, members, currentUser, liveTemp, liveWind}){
 
   function startListening(){
     const SR = window.SpeechRecognition||window.webkitSpeechRecognition;
-    if(!SR){ setError("Voice not supported — try Safari on iPhone."); return; }
-    stopSpeaking(); setSpeaking(false); setError("");
+    if(!SR){ setError("Voice not supported on this browser."); return; }
+    stopSpeaking(); setSpeaking(false); setError(""); setTranscript(""); setResult(null);
     const recog = new SR();
-    recog.lang="en-US"; recog.interimResults=false;
-    recog.onstart=()=>setListening(true);
+    recog.lang="en-US";
+    recog.interimResults=false;
+    recog.maxAlternatives=1;
+    recog.continuous=false;
+    recog.onstart=()=>{ setListening(true); setError(""); };
+    recog.onspeechstart=()=>setError("🎙️ Hearing you...");
+    recog.onspeechend=()=>setError("Processing...");
     recog.onend=()=>setListening(false);
-    recog.onerror=()=>{ setListening(false); setError("Didn't catch that — try again."); };
+    recog.onerror=e=>{
+      setListening(false);
+      const msgs={
+        "no-speech":"No speech detected — tap mic and speak clearly.",
+        "audio-capture":"Mic not available — check permissions.",
+        "not-allowed":"Mic permission denied — check Safari settings.",
+        "network":"Network error — try again.",
+      };
+      setError(msgs[e.error]||"Error: "+e.error+" — try again.");
+    };
     recog.onresult=e=>{
-      const text = e.results[0][0].transcript;
+      const text = (e.results[0][0].transcript||"").trim();
+      setError("");
       setTranscript(text);
       setListening(false);
       const r = buildResult(text);
       setResult(r);
     };
     recogRef.current=recog;
-    recog.start();
+    try { recog.start(); }
+    catch(e){ setError("Couldn't start mic: "+e.message); }
   }
 
   function speakResult(r){
