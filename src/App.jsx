@@ -3137,9 +3137,7 @@ function VoiceCaddie({bags, members, currentUser, liveTemp, liveWind}){
   const windDir   = liveWind?.dir||"";
   const temp      = liveTemp||70;
 
-  function parseYards(text){ const m=text.match(/([0-9]{2,3})/); return m?parseInt(m[1]):null; })/);
-    return m ? parseInt(m[1]) : null;
-  }
+  function parseYards(text){ const m=text.match(/([0-9]{2,3})/); return m?parseInt(m[1]):null; }
 
   function parseLie(text){
     const t = text.toLowerCase();
@@ -3166,11 +3164,17 @@ function VoiceCaddie({bags, members, currentUser, liveTemp, liveWind}){
     const lie     = parseLie(text);
     if(!yardage) return null;
 
+    const t = text.toLowerCase();
+    let specifiedWind = null;
+    if(t.includes("headwind")||t.includes("head wind")||t.includes("into the wind")||t.includes("into wind")) specifiedWind="headwind";
+    else if(t.includes("tailwind")||t.includes("tail wind")||t.includes("downwind")||t.includes("down wind")||t.includes("with the wind")) specifiedWind="tailwind";
+    else if(t.includes("crosswind")||t.includes("cross wind")||t.includes("side wind")) specifiedWind="crosswind";
+
     const hw = calcClubs(yardage, "headwind", lie);
     const tw = calcClubs(yardage, "tailwind",  lie);
     const cw = calcClubs(yardage, "crosswind", lie);
 
-    return {yardage, lie, temp, windSpeed, windDir, hw, tw, cw};
+    return {yardage, lie, temp, windSpeed, windDir, hw, tw, cw, specifiedWind};
   }
 
   function startListening(){
@@ -3195,12 +3199,20 @@ function VoiceCaddie({bags, members, currentUser, liveTemp, liveWind}){
 
   function speakResult(r){
     if(!r) return;
-    const {yardage, lie, hw, tw, cw} = r;
+    const {yardage, lie, hw, tw, cw, specifiedWind} = r;
     const lieNote = lie!=="fairway" ? ` from the ${lie}` : "";
     let s = `${yardage} yards${lieNote}. `;
-    s += `Headwind: hit ${hw.top?.club||"unknown"}, ${hw.top?.carry} carry, ${hw.top?.total} total. `;
-    s += `Tailwind: hit ${tw.top?.club||"unknown"}, ${tw.top?.carry} carry, ${tw.top?.total} total. `;
-    s += `Crosswind: hit ${cw.top?.club||"unknown"}, ${cw.top?.carry} carry, ${cw.top?.total} total.`;
+    if(specifiedWind==="headwind"){
+      s += `Into the wind, hit the ${hw.top?.club||"unknown"}. ${hw.top?.carry} carry, ${hw.top?.roll} roll, ${hw.top?.total} total.`;
+    } else if(specifiedWind==="tailwind"){
+      s += `Downwind, hit the ${tw.top?.club||"unknown"}. ${tw.top?.carry} carry, ${tw.top?.roll} roll, ${tw.top?.total} total.`;
+    } else if(specifiedWind==="crosswind"){
+      s += `Crosswind, hit the ${cw.top?.club||"unknown"}. ${cw.top?.carry} carry, ${cw.top?.roll} roll, ${cw.top?.total} total.`;
+    } else {
+      s += `Headwind: ${hw.top?.club||"unknown"}, ${hw.top?.total} total. `;
+      s += `Tailwind: ${tw.top?.club||"unknown"}, ${tw.top?.total} total. `;
+      s += `Crosswind: ${cw.top?.club||"unknown"}, ${cw.top?.total} total.`;
+    }
     setSpeaking(true);
     speakText(s, ()=>setSpeaking(false));
   }
@@ -3214,7 +3226,7 @@ function VoiceCaddie({bags, members, currentUser, liveTemp, liveWind}){
         {/* Direction label */}
         <div style={{fontWeight:700,fontSize:14,color:C.cream,marginBottom:8}}>{emoji} {label}</div>
 
-        {/* Adjusted distance block — matches Shots tab */
+        {/* Adjusted distance block — matches Shots tab */}
         <div style={{background:"rgba(13,32,16,.8)",border:"1px solid rgba(42,107,52,.3)",borderRadius:10,padding:"10px 14px",marginBottom:10}}>
           <div style={{fontSize:10,color:C.creamMuted,letterSpacing:2,textTransform:"uppercase",marginBottom:6}}>Adjusted Distance</div>
           <div style={{fontFamily:"'Cinzel',serif",fontSize:26,fontWeight:700,color:C.goldLight,lineHeight:1}}>{adj} <span style={{fontSize:14,color:C.creamMuted}}>yards</span></div>
@@ -3302,9 +3314,14 @@ function VoiceCaddie({bags, members, currentUser, liveTemp, liveWind}){
               {speaking?"🔊 Speaking…":"🔊 Hear It"}
             </button>
           </div>
-          <OptionRow label="Headwind"  emoji="⬆️" calc={result.hw}/>
-          <OptionRow label="Tailwind"  emoji="⬇️" calc={result.tw}/>
-          <OptionRow label="Crosswind" emoji="↔️" calc={result.cw}/>
+          {result.specifiedWind==="headwind"  && <OptionRow label="Headwind"  emoji="⬆️" calc={result.hw}/>}
+          {result.specifiedWind==="tailwind"  && <OptionRow label="Tailwind"  emoji="⬇️" calc={result.tw}/>}
+          {result.specifiedWind==="crosswind" && <OptionRow label="Crosswind" emoji="↔️" calc={result.cw}/>}
+          {!result.specifiedWind && <>
+            <OptionRow label="Headwind"  emoji="⬆️" calc={result.hw}/>
+            <OptionRow label="Tailwind"  emoji="⬇️" calc={result.tw}/>
+            <OptionRow label="Crosswind" emoji="↔️" calc={result.cw}/>
+          </>}
           <button onClick={()=>{setResult(null);setTranscript("");}} style={{width:"100%",background:"rgba(255,255,255,.05)",border:"1px solid rgba(42,107,52,.2)",borderRadius:10,color:C.creamMuted,padding:"10px",fontSize:13,cursor:"pointer",marginTop:4}}>
             New Shot
           </button>
@@ -3588,11 +3605,14 @@ function CaddyView({members,bags,saveBags,currentUser}){
         setAutoTemp(tempF);
         setAutoWind({speed:windSpeedMph, dir:windDir, deg:windDeg});
         setTemp(String(tempF));
-        // Auto-fill wind in shots calculator
+        // Auto-fill wind speed in shots calculator
         if(windSpeedMph>3){
           setWindMph(String(windSpeedMph));
           save("caddy_windMph", String(windSpeedMph));
-          // Don't auto-set direction — user picks headwind/tailwind/crosswind
+          setResult(null);
+        } else {
+          setWindMph("0");
+          save("caddy_windMph","0");
         }
         setTempLabel(`📍 ${tempF}°F · 💨 ${windSpeedMph} mph ${windDir} — live weather`);
         save("caddy_temp", String(tempF));
