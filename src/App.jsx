@@ -3096,110 +3096,141 @@ function RoundGPS({course, currentUser, onClose}){
   const [pos,        setPos]        = useState(null);
   const [holeIdx,    setHoleIdx]    = useState(0);
   const [gpsError,   setGpsError]   = useState("");
-  const [scoreEntry, setScoreEntry] = useState({});
+  const [selectedScore, setSelectedScore] = useState(null);
+  const [scoringPlayer, setScoringPlayer] = useState(currentUser.uid);
   const [roundId,    setRoundId]    = useState(null);
   const [liveRound,  setLiveRound]  = useState(null);
   const [showScore,  setShowScore]  = useState(false);
   const [showLeader, setShowLeader] = useState(false);
   const watchId = useRef(null);
 
-  const holes = course?.holeData || [];
-  const hole  = holes[holeIdx] || {};
+  const holes      = course?.holeData || Array.from({length:course?.holes||18},(_,i)=>({holeNum:i+1}));
+  const hole       = holes[holeIdx] || {};
   const totalHoles = holes.length || 18;
+  const par        = course?.pars?.[holeIdx] || hole.par || 4;
 
-  // Start GPS watch
+  // GPS watch
   useEffect(()=>{
-    if(!navigator.geolocation){ setGpsError("GPS not available on this device."); return; }
+    if(!navigator.geolocation){ setGpsError("GPS not available."); return; }
     watchId.current = navigator.geolocation.watchPosition(
-      p => setPos({lat: p.coords.latitude, lng: p.coords.longitude, acc: Math.round(p.coords.accuracy)}),
-      e => setGpsError("GPS error: " + e.message),
-      { enableHighAccuracy: true, maximumAge: 3000, timeout: 10000 }
+      p => setPos({lat:p.coords.latitude, lng:p.coords.longitude, acc:Math.round(p.coords.accuracy)}),
+      e => setGpsError("GPS: "+e.message),
+      {enableHighAccuracy:true, maximumAge:3000, timeout:10000}
     );
-    return () => { if(watchId.current) navigator.geolocation.clearWatch(watchId.current); };
+    return()=>{ if(watchId.current) navigator.geolocation.clearWatch(watchId.current); };
   },[]);
 
-  // Create or join live round in Firebase
+  // Firebase round listener
   useEffect(()=>{
     if(!course) return;
-    const rid = "round_" + currentUser.uid + "_" + course.id + "_" + new Date().toDateString().replace(/ /g,"_");
+    const rid = "round_"+currentUser.uid+"_"+course.id+"_"+new Date().toDateString().replace(/ /g,"_");
     setRoundId(rid);
     const unsub = onSnapshot(doc(db,"dtg_rounds",rid), snap=>{
-      if(snap.exists()) setLiveRound(snap.data());
-      else {
+      if(snap.exists()){
+        setLiveRound(snap.data());
+      } else {
         const init = {
-          id:rid, courseId:course.id, courseName:course.name||"Unknown Course",
+          id:rid, courseId:course.id, courseName:course.name||"Unknown",
           createdBy:currentUser.uid, createdByName:currentUser.displayName||"",
           currentHole:1, startedAt:new Date().toISOString(),
-          players:{ [currentUser.uid]: { name:currentUser.displayName||"", scores:{}, total:0 } }
+          players:{ [currentUser.uid]:{ name:currentUser.displayName||"Me", scores:{}, total:0 } }
         };
         setDoc(doc(db,"dtg_rounds",rid), init);
         setLiveRound(init);
       }
     });
-    return ()=>unsub();
+    return()=>unsub();
   },[course, currentUser]);
 
   // Distances
-  const teeYards  = haversineYards(pos?.lat, pos?.lng, hole.teeLat,   hole.teeLng);
   const frontYds  = haversineYards(pos?.lat, pos?.lng, hole.frontLat,  hole.frontLng);
   const centerYds = haversineYards(pos?.lat, pos?.lng, hole.centerLat, hole.centerLng);
   const backYds   = haversineYards(pos?.lat, pos?.lng, hole.backLat,   hole.backLng);
 
-  async function saveScore(strokes){
-    if(!roundId||!strokes) return;
-    const newScores = {...(liveRound?.players?.[currentUser.uid]?.scores||{}), [holeIdx+1]: strokes};
+  async function saveScore(){
+    if(!roundId || selectedScore === null) return;
+    const uid = scoringPlayer;
+    const playerData = liveRound?.players?.[uid] || { name:uid===currentUser.uid?currentUser.displayName||"Me":"Player", scores:{}, total:0 };
+    const newScores = {...(playerData.scores||{}), [holeIdx+1]: selectedScore};
     const total = Object.values(newScores).reduce((s,v)=>s+(+v||0),0);
     await setDoc(doc(db,"dtg_rounds",roundId),{
       ...liveRound,
       currentHole: Math.min(holeIdx+2, totalHoles),
-      players: {
-        ...liveRound?.players,
-        [currentUser.uid]: { name:currentUser.displayName||"", scores:newScores, total }
-      }
+      players:{ ...(liveRound?.players||{}), [uid]:{ ...playerData, scores:newScores, total } }
     },{merge:true});
     setShowScore(false);
-    if(holeIdx < totalHoles-1) setHoleIdx(h=>h+1);
+    setSelectedScore(null);
+    if(holeIdx < totalHoles-1 && uid===currentUser.uid) setHoleIdx(h=>h+1);
   }
 
+  function openScoreEntry(uid){
+    setScoringPlayer(uid);
+    const existing = liveRound?.players?.[uid]?.scores?.[holeIdx+1] || null;
+    setSelectedScore(existing);
+    setShowScore(true);
+  }
+
+  const allPlayers = Object.entries(liveRound?.players||{}).sort((a,b)=>a[1].total-b[1].total);
   const myScore = liveRound?.players?.[currentUser.uid]?.scores?.[holeIdx+1];
   const myTotal = liveRound?.players?.[currentUser.uid]?.total||0;
-  const allPlayers = Object.values(liveRound?.players||{}).sort((a,b)=>a.total-b.total);
 
-  // Score entry modal
+  // ── Score entry modal ──
   if(showScore){
+    const playerName = scoringPlayer===currentUser.uid
+      ? (currentUser.displayName||"Me")
+      : (liveRound?.players?.[scoringPlayer]?.name||"Player");
+    const existingScore = liveRound?.players?.[scoringPlayer]?.scores?.[holeIdx+1]||null;
+
     return(
-      <div style={{position:"fixed",inset:0,zIndex:600,background:"rgba(0,0,0,.9)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-        <div style={{background:C.card,border:"1px solid rgba(42,107,52,.3)",borderRadius:20,padding:"28px 24px",width:"100%",maxWidth:380}}>
-          <div style={{fontFamily:"'Cinzel',serif",fontSize:18,fontWeight:700,color:C.cream,marginBottom:6}}>Hole {holeIdx+1} Score</div>
-          <div style={{fontSize:13,color:C.creamMuted,marginBottom:20}}>Par {hole.par||4}</div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:8,marginBottom:20}}>
-            {[1,2,3,4,5,6,7,8,9,10].map(n=>(
-              <button key={n} onClick={()=>{setScoreEntry({[holeIdx+1]:n});}} style={{padding:"14px 0",borderRadius:10,border:scoreEntry[holeIdx+1]===n?"2px solid "+C.goldLight:"1px solid rgba(42,107,52,.3)",background:scoreEntry[holeIdx+1]===n?`linear-gradient(135deg,${C.gold},${C.goldDim})`:"rgba(5,14,6,.7)",color:scoreEntry[holeIdx+1]===n?"#0a1a0c":C.cream,fontFamily:"'Cinzel',serif",fontSize:16,fontWeight:700,cursor:"pointer"}}>
-                {n}
-              </button>
-            ))}
+      <div style={{position:"fixed",inset:0,zIndex:600,background:"rgba(0,0,0,.92)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+        <div style={{background:C.card,border:"1px solid rgba(42,107,52,.3)",borderRadius:20,padding:"24px 20px",width:"100%",maxWidth:380}}>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:17,fontWeight:700,color:C.cream,marginBottom:4}}>Hole {holeIdx+1} — {playerName}</div>
+          <div style={{fontSize:12,color:C.creamMuted,marginBottom:18}}>Par {par}{existingScore?` · current: ${existingScore}`:""}</div>
+
+          {/* Score grid */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:20}}>
+            {[1,2,3,4,5,6,7,8,9,10].map(n=>{
+              const isSelected = selectedScore===n;
+              const diff = n - par;
+              const diffLabel = diff===0?"E":diff>0?"+"+diff:String(diff);
+              return(
+                <button key={n} onClick={()=>setSelectedScore(n)} style={{
+                  padding:"12px 0",borderRadius:10,cursor:"pointer",
+                  border:isSelected?"2px solid "+C.goldLight:"1px solid rgba(42,107,52,.25)",
+                  background:isSelected?`linear-gradient(135deg,${C.gold},${C.goldDim})`:"rgba(5,14,6,.7)",
+                  color:isSelected?"#0a1a0c":C.cream,
+                  display:"flex",flexDirection:"column",alignItems:"center",gap:2
+                }}>
+                  <span style={{fontFamily:"'Cinzel',serif",fontSize:18,fontWeight:700}}>{n}</span>
+                  <span style={{fontSize:9,color:isSelected?"#0a1a0c":diff<0?"#6ae0a0":diff===0?C.creamMuted:"#e07070"}}>{diffLabel}</span>
+                </button>
+              );
+            })}
           </div>
+
           <div style={{display:"flex",gap:10}}>
-            <button onClick={()=>setShowScore(false)} style={{flex:1,background:"rgba(255,255,255,.05)",border:"none",borderRadius:10,color:C.creamMuted,padding:"13px",fontSize:14,cursor:"pointer"}}>Cancel</button>
-            <button onClick={()=>saveScore(scoreEntry[holeIdx+1])} disabled={!scoreEntry[holeIdx+1]} style={{flex:2,background:scoreEntry[holeIdx+1]?`linear-gradient(135deg,${C.gold},${C.goldDim})`:"rgba(60,60,60,.3)",border:"none",borderRadius:10,color:scoreEntry[holeIdx+1]?"#0a1a0c":C.creamMuted,padding:"13px",fontSize:14,fontWeight:700,cursor:scoreEntry[holeIdx+1]?"pointer":"not-allowed"}}>Save Score</button>
+            <button onClick={()=>{setShowScore(false);setSelectedScore(null);}} style={{flex:1,background:"rgba(255,255,255,.05)",border:"none",borderRadius:10,color:C.creamMuted,padding:"13px",fontSize:14,cursor:"pointer"}}>Cancel</button>
+            <button onClick={saveScore} disabled={selectedScore===null} style={{flex:2,background:selectedScore!==null?`linear-gradient(135deg,${C.gold},${C.goldDim})`:"rgba(60,60,60,.3)",border:"none",borderRadius:10,color:selectedScore!==null?"#0a1a0c":C.creamMuted,padding:"13px",fontSize:14,fontWeight:700,cursor:selectedScore!==null?"pointer":"not-allowed"}}>
+              Save Score ✓
+            </button>
           </div>
         </div>
       </div>
     );
   }
 
-  // Leaderboard modal
+  // ── Leaderboard modal ──
   if(showLeader){
     return(
-      <div style={{position:"fixed",inset:0,zIndex:600,background:"rgba(0,0,0,.9)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <div style={{position:"fixed",inset:0,zIndex:600,background:"rgba(0,0,0,.92)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
         <div style={{background:C.card,border:"1px solid rgba(42,107,52,.3)",borderRadius:20,padding:"24px",width:"100%",maxWidth:400,maxHeight:"80vh",overflowY:"auto"}}>
           <div style={{fontFamily:"'Cinzel',serif",fontSize:16,fontWeight:700,color:C.cream,marginBottom:16}}>🏆 Live Leaderboard</div>
-          {allPlayers.map((p,i)=>(
-            <div key={p.name} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 14px",background:i===0?"rgba(201,162,39,.1)":"rgba(13,32,16,.7)",border:i===0?"1px solid rgba(201,162,39,.3)":"1px solid rgba(42,107,52,.15)",borderRadius:12,marginBottom:8}}>
-              <div style={{fontFamily:"'Cinzel',serif",fontSize:20,color:i===0?C.goldLight:C.creamMuted,fontWeight:700,width:28}}>{i===0?"👑":i+1}</div>
+          {allPlayers.map(([uid,p],i)=>(
+            <div key={uid} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 14px",background:i===0?"rgba(201,162,39,.1)":"rgba(13,32,16,.7)",border:i===0?"1px solid rgba(201,162,39,.3)":"1px solid rgba(42,107,52,.15)",borderRadius:12,marginBottom:8}}>
+              <div style={{fontFamily:"'Cinzel',serif",fontSize:20,color:i===0?C.goldLight:C.creamMuted,fontWeight:700,width:28,textAlign:"center"}}>{i===0?"👑":i+1}</div>
               <div style={{flex:1}}>
                 <div style={{fontWeight:600,fontSize:14,color:C.cream}}>{p.name}</div>
-                <div style={{fontSize:11,color:C.creamMuted,marginTop:2}}>{Object.keys(p.scores||{}).length} holes played</div>
+                <div style={{fontSize:11,color:C.creamMuted,marginTop:2}}>{Object.keys(p.scores||{}).length}/{totalHoles} holes</div>
               </div>
               <div style={{fontFamily:"'Cinzel',serif",fontSize:22,fontWeight:700,color:i===0?C.goldLight:C.cream}}>{p.total||"—"}</div>
             </div>
@@ -3210,79 +3241,76 @@ function RoundGPS({course, currentUser, onClose}){
     );
   }
 
+  // ── Main round view ──
   return(
     <div style={{minHeight:"100vh",background:C.bg,fontFamily:"'DM Sans',sans-serif",color:C.cream}}>
       {/* Header */}
-      <div style={{background:"#1e4d26",borderBottom:"1px solid rgba(201,162,39,.2)",padding:"16px 20px 12px"}}>
+      <div style={{background:"#1e4d26",borderBottom:"1px solid rgba(201,162,39,.2)",padding:"14px 20px 10px"}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
           <button onClick={onClose} style={{background:"rgba(255,255,255,.06)",border:"none",borderRadius:8,color:C.creamMuted,padding:"7px 12px",fontSize:12,cursor:"pointer"}}>← Exit</button>
-          <div style={{fontFamily:"'Cinzel',serif",fontSize:14,fontWeight:700,color:C.goldLight,textAlign:"center"}}>{course?.name||"Round"}</div>
-          <button onClick={()=>setShowLeader(true)} style={{background:"rgba(201,162,39,.15)",border:"1px solid rgba(201,162,39,.3)",borderRadius:8,color:C.gold,padding:"7px 12px",fontSize:12,cursor:"pointer",fontWeight:600}}>🏆 Board</button>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:13,fontWeight:700,color:C.goldLight,textAlign:"center",flex:1,padding:"0 10px"}} numberOfLines={1}>{course?.name||"Round"}</div>
+          <button onClick={()=>setShowLeader(true)} style={{background:"rgba(201,162,39,.15)",border:"1px solid rgba(201,162,39,.3)",borderRadius:8,color:C.gold,padding:"7px 12px",fontSize:12,cursor:"pointer",fontWeight:600}}>🏆</button>
         </div>
         {/* Hole navigator */}
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:4}}>
-          <button onClick={()=>setHoleIdx(h=>Math.max(0,h-1))} disabled={holeIdx===0} style={{background:"rgba(255,255,255,.06)",border:"none",borderRadius:8,color:holeIdx===0?C.creamMuted:C.cream,padding:"10px 16px",fontSize:18,cursor:holeIdx===0?"default":"pointer"}}>‹</button>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <button onClick={()=>setHoleIdx(h=>Math.max(0,h-1))} disabled={holeIdx===0} style={{background:"rgba(255,255,255,.06)",border:"none",borderRadius:8,color:holeIdx===0?C.creamMuted:C.cream,padding:"10px 18px",fontSize:20,cursor:holeIdx===0?"default":"pointer"}}>‹</button>
           <div style={{textAlign:"center"}}>
             <div style={{fontSize:10,color:C.creamMuted,letterSpacing:2}}>HOLE</div>
-            <div style={{fontFamily:"'Cinzel',serif",fontSize:40,fontWeight:700,color:C.cream,lineHeight:1}}>{holeIdx+1}</div>
-            <div style={{fontSize:12,color:C.creamMuted}}>Par {hole.par||4} · of {totalHoles}</div>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:44,fontWeight:700,color:C.cream,lineHeight:1}}>{holeIdx+1}</div>
+            <div style={{fontSize:12,color:C.creamMuted}}>Par {par} · {totalHoles} holes</div>
           </div>
-          <button onClick={()=>setHoleIdx(h=>Math.min(totalHoles-1,h+1))} disabled={holeIdx===totalHoles-1} style={{background:"rgba(255,255,255,.06)",border:"none",borderRadius:8,color:holeIdx===totalHoles-1?C.creamMuted:C.cream,padding:"10px 16px",fontSize:18,cursor:holeIdx===totalHoles-1?"default":"pointer"}}>›</button>
+          <button onClick={()=>setHoleIdx(h=>Math.min(totalHoles-1,h+1))} disabled={holeIdx===totalHoles-1} style={{background:"rgba(255,255,255,.06)",border:"none",borderRadius:8,color:holeIdx===totalHoles-1?C.creamMuted:C.cream,padding:"10px 18px",fontSize:20,cursor:holeIdx===totalHoles-1?"default":"pointer"}}>›</button>
         </div>
       </div>
 
-      <div style={{padding:"20px",maxWidth:480,margin:"0 auto"}}>
-        {/* GPS accuracy */}
-        {pos&&<div style={{fontSize:11,color:C.greenBright,textAlign:"center",marginBottom:12}}>📍 GPS ±{pos.acc}m</div>}
+      <div style={{padding:"16px 20px",maxWidth:480,margin:"0 auto"}}>
+        {/* GPS status */}
+        {pos&&<div style={{fontSize:11,color:C.greenBright,textAlign:"center",marginBottom:10}}>📍 GPS accuracy ±{pos.acc}m</div>}
         {gpsError&&<div style={{background:"rgba(192,64,64,.1)",border:"1px solid rgba(192,64,64,.3)",borderRadius:10,padding:"10px 14px",fontSize:12,color:"#e07070",marginBottom:12}}>{gpsError}</div>}
 
         {/* Distances */}
-        <div style={{background:"rgba(13,32,16,.85)",border:"1px solid rgba(42,107,52,.25)",borderRadius:16,padding:"20px",marginBottom:16}}>
-          <div style={{fontFamily:"'Cinzel',serif",fontSize:11,color:C.creamMuted,letterSpacing:2,marginBottom:14}}>DISTANCES TO GREEN</div>
-          {[
-            {label:"Front",yards:frontYds,color:C.greenBright},
-            {label:"Center",yards:centerYds,color:C.goldLight},
-            {label:"Back",yards:backYds,color:"rgba(200,100,100,.9)"},
-          ].map(d=>(
-            <div key={d.label} style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,padding:"10px 14px",background:"rgba(5,14,6,.5)",borderRadius:10}}>
-              <div style={{fontSize:13,color:C.creamMuted}}>{d.label}</div>
-              <div style={{fontFamily:"'Cinzel',serif",fontSize:26,fontWeight:700,color:d.color}}>
-                {d.yards!=null ? d.yards : <span style={{fontSize:16,color:C.creamMuted}}>—</span>}
-                {d.yards!=null && <span style={{fontSize:13,color:C.creamMuted,marginLeft:4}}>yds</span>}
+        <div style={{background:"rgba(13,32,16,.85)",border:"1px solid rgba(42,107,52,.25)",borderRadius:14,padding:"16px",marginBottom:14}}>
+          <div style={{fontSize:10,color:C.creamMuted,letterSpacing:2,marginBottom:12,textTransform:"uppercase"}}>Distance to Green</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+            {[{l:"Front",v:frontYds,c:C.greenBright},{l:"Center",v:centerYds,c:C.goldLight},{l:"Back",v:backYds,c:"rgba(220,100,100,.9)"}].map(d=>(
+              <div key={d.l} style={{background:"rgba(5,14,6,.6)",borderRadius:10,padding:"12px 8px",textAlign:"center"}}>
+                <div style={{fontSize:10,color:C.creamMuted,marginBottom:4}}>{d.l}</div>
+                <div style={{fontFamily:"'Cinzel',serif",fontSize:24,fontWeight:700,color:d.v!=null?d.color:C.creamMuted}}>{d.v!=null?d.v:"—"}</div>
+                {d.v!=null&&<div style={{fontSize:9,color:C.creamMuted}}>yds</div>}
               </div>
-            </div>
-          ))}
-          {!hole.centerLat && (
-            <div style={{fontSize:11,color:C.creamMuted,textAlign:"center",marginTop:4}}>
-              ⚠️ No GPS coordinates for this hole yet — add them in Admin → Courses
-            </div>
-          )}
+            ))}
+          </div>
+          {!hole.centerLat&&<div style={{fontSize:11,color:C.creamMuted,textAlign:"center",marginTop:10}}>⚠️ No GPS data for this hole · Add in Admin → Courses</div>}
         </div>
 
-        {/* My score this hole */}
-        <div style={{display:"flex",gap:12,marginBottom:16}}>
-          <div style={{flex:1,background:myScore?"linear-gradient(135deg,rgba(26,77,36,.3),rgba(201,162,39,.1))":"rgba(13,32,16,.8)",border:myScore?"1px solid rgba(201,162,39,.3)":"1px solid rgba(42,107,52,.2)",borderRadius:14,padding:"16px",textAlign:"center"}}>
-            <div style={{fontSize:11,color:C.creamMuted,letterSpacing:2,marginBottom:6}}>MY SCORE</div>
-            <div style={{fontFamily:"'Cinzel',serif",fontSize:32,fontWeight:700,color:myScore?C.goldLight:C.creamMuted}}>{myScore||"—"}</div>
-            {myScore&&<div style={{fontSize:11,color:C.creamMuted,marginTop:4}}>{myScore-(hole.par||4)>0?"+"+(myScore-(hole.par||4)):myScore-(hole.par||4)===0?"E":myScore-(hole.par||4)} vs par</div>}
-          </div>
-          <div style={{flex:1,background:"rgba(13,32,16,.8)",border:"1px solid rgba(42,107,52,.2)",borderRadius:14,padding:"16px",textAlign:"center"}}>
-            <div style={{fontSize:11,color:C.creamMuted,letterSpacing:2,marginBottom:6}}>ROUND TOTAL</div>
-            <div style={{fontFamily:"'Cinzel',serif",fontSize:32,fontWeight:700,color:C.cream}}>{myTotal||"—"}</div>
-          </div>
+        {/* Score entry for ALL players */}
+        <div style={{background:"rgba(13,32,16,.85)",border:"1px solid rgba(42,107,52,.25)",borderRadius:14,padding:"16px",marginBottom:14}}>
+          <div style={{fontSize:10,color:C.creamMuted,letterSpacing:2,marginBottom:12,textTransform:"uppercase"}}>Scores — Hole {holeIdx+1}</div>
+          {allPlayers.map(([uid,p])=>{
+            const s = p.scores?.[holeIdx+1];
+            const diff = s ? s - par : null;
+            return(
+              <div key={uid} style={{display:"flex",alignItems:"center",gap:10,marginBottom:8,padding:"10px 12px",background:"rgba(5,14,6,.5)",borderRadius:10}}>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:13,fontWeight:600,color:C.cream}}>{p.name}{uid===currentUser.uid?" (you)":""}</div>
+                  <div style={{fontSize:10,color:C.creamMuted,marginTop:1}}>Total: {p.total||"—"}</div>
+                </div>
+                <div style={{fontFamily:"'Cinzel',serif",fontSize:22,fontWeight:700,color:s?C.goldLight:C.creamMuted,minWidth:32,textAlign:"center"}}>{s||"—"}</div>
+                {diff!==null&&<div style={{fontSize:11,color:diff<0?"#6ae0a0":diff===0?C.creamMuted:"#e07070",minWidth:24,textAlign:"center"}}>{diff>0?"+"+diff:diff===0?"E":diff}</div>}
+                <button onClick={()=>openScoreEntry(uid)} style={{background:`linear-gradient(135deg,${C.green},${C.greenLight})`,border:"none",borderRadius:8,color:C.cream,padding:"8px 14px",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
+                  {s?"Edit":"Enter"}
+                </button>
+              </div>
+            );
+          })}
         </div>
-
-        {/* Enter score button */}
-        <button onClick={()=>{setScoreEntry({});setShowScore(true);}} style={{width:"100%",background:`linear-gradient(135deg,${C.gold},${C.goldDim})`,border:"none",borderRadius:14,color:"#0a1a0c",padding:"16px",fontSize:15,fontWeight:700,cursor:"pointer",letterSpacing:1,fontFamily:"'Cinzel',sans-serif",marginBottom:12}}>
-          {myScore?"✏️ EDIT SCORE":"⛳ ENTER SCORE"} — Hole {holeIdx+1}
-        </button>
 
         {/* Hole dots */}
-        <div style={{display:"flex",gap:4,justifyContent:"center",flexWrap:"wrap",marginTop:8}}>
+        <div style={{display:"flex",gap:4,justifyContent:"center",flexWrap:"wrap"}}>
           {holes.map((_,i)=>{
-            const s=liveRound?.players?.[currentUser.uid]?.scores?.[i+1];
+            const myS = liveRound?.players?.[currentUser.uid]?.scores?.[i+1];
             return(
-              <button key={i} onClick={()=>setHoleIdx(i)} style={{width:24,height:24,borderRadius:"50%",border:"none",cursor:"pointer",fontSize:9,fontWeight:700,background:i===holeIdx?C.gold:s?"rgba(42,107,52,.6)":"rgba(42,107,52,.2)",color:i===holeIdx?"#0a1a0c":s?C.greenBright:C.creamMuted}}>{i+1}</button>
+              <button key={i} onClick={()=>setHoleIdx(i)} style={{width:26,height:26,borderRadius:"50%",border:"none",cursor:"pointer",fontSize:9,fontWeight:700,background:i===holeIdx?C.gold:myS?"rgba(42,107,52,.6)":"rgba(42,107,52,.2)",color:i===holeIdx?"#0a1a0c":myS?C.greenBright:C.creamMuted}}>{i+1}</button>
             );
           })}
         </div>
@@ -3290,6 +3318,7 @@ function RoundGPS({course, currentUser, onClose}){
     </div>
   );
 }
+
 
 // ─── SPEECH UTILS ─────────────────────────────────────────────────────────────
 function pickFemaleVoice(){
