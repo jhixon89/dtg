@@ -727,6 +727,7 @@ function FeaturedPhotoUploader({photos, onChange}){
 function CourseProfile({course, currentUser, onBack, onAddCommunityPhoto}){
   const [activeHole, setActiveHole] = useState(0); // 0 = overview, 1-18 = hole
   const [viewMode,   setViewMode]   = useState("earth"); // earth | green
+  const [showRoundGPS, setShowRoundGPS] = useState(false);
   const scrollRef = useRef(null);
 
   const holes = course.holeData || Array.from({length:course.holes||18},(_,i)=>({
@@ -734,6 +735,11 @@ function CourseProfile({course, currentUser, onBack, onAddCommunityPhoto}){
   }));
 
   const totalPhotos=(course.featuredPhotos||[]).length+(course.communityPhotos||[]).length;
+
+  // GPS Round view
+  if(showRoundGPS){
+    return <RoundGPS course={course} currentUser={currentUser} onClose={()=>setShowRoundGPS(false)}/>;
+  }
 
   // If viewing a specific hole — full screen TikTok style
   if(activeHole>0){
@@ -833,6 +839,7 @@ function CourseProfile({course, currentUser, onBack, onAddCommunityPhoto}){
         )}
         <div style={{position:"absolute",inset:0,background:"linear-gradient(to bottom,transparent 30%,rgba(0,0,0,.85))"}}/>
         <button onClick={onBack} style={{position:"absolute",top:16,left:16,background:"rgba(0,0,0,.5)",border:"none",borderRadius:20,color:"white",padding:"8px 14px",fontSize:13,cursor:"pointer"}}>‹ Back</button>
+        <button onClick={()=>setShowRoundGPS(true)} style={{position:"absolute",top:16,right:16,background:`linear-gradient(135deg,${C.green},${C.greenLight})`,border:"none",borderRadius:20,color:"white",padding:"8px 16px",fontSize:13,fontWeight:700,cursor:"pointer"}}>⛳ Start Round</button>
         <div style={{position:"absolute",bottom:16,left:16,right:16}}>
           <div style={{fontFamily:"'Cinzel',serif",fontSize:22,fontWeight:700,color:"white"}}>{course.name}</div>
           <div style={{fontSize:12,color:"rgba(255,255,255,.7)",marginTop:2}}>{course.city}, {course.state} · {course.holes} holes</div>
@@ -955,6 +962,7 @@ function HoleDataEditor({holeNum, data, onChange, par}){
   const hasGreen=!!data.greenImage;
   const hasModel=!!data.greenModel;
   const hasDesc=!!(data.description||"").trim();
+  const hasGPS=!!(data.centerLat&&data.centerLng);
 
   return(
     <div style={{border:"1px solid rgba(42,107,52,.15)",borderRadius:12,marginBottom:8,overflow:"hidden"}}>
@@ -3069,6 +3077,219 @@ function ModelViewerEmbed({glbData, label}){
   );
 }
 
+
+
+// ─── HAVERSINE FORMULA ────────────────────────────────────────────────────────
+function haversineYards(lat1, lon1, lat2, lon2){
+  if(!lat1||!lon1||!lat2||!lon2) return null;
+  const R = 6371000; // meters
+  const φ1 = lat1 * Math.PI/180, φ2 = lat2 * Math.PI/180;
+  const Δφ = (lat2-lat1) * Math.PI/180;
+  const Δλ = (lon2-lon1) * Math.PI/180;
+  const a = Math.sin(Δφ/2)**2 + Math.cos(φ1)*Math.cos(φ2)*Math.sin(Δλ/2)**2;
+  const d = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return Math.round(d * 1.09361); // meters → yards
+}
+
+// ─── GPS ROUND VIEW ───────────────────────────────────────────────────────────
+function RoundGPS({course, currentUser, onClose}){
+  const [pos,        setPos]        = useState(null);
+  const [holeIdx,    setHoleIdx]    = useState(0);
+  const [gpsError,   setGpsError]   = useState("");
+  const [scoreEntry, setScoreEntry] = useState({});
+  const [roundId,    setRoundId]    = useState(null);
+  const [liveRound,  setLiveRound]  = useState(null);
+  const [showScore,  setShowScore]  = useState(false);
+  const [showLeader, setShowLeader] = useState(false);
+  const watchId = useRef(null);
+
+  const holes = course?.holeData || [];
+  const hole  = holes[holeIdx] || {};
+  const totalHoles = holes.length || 18;
+
+  // Start GPS watch
+  useEffect(()=>{
+    if(!navigator.geolocation){ setGpsError("GPS not available on this device."); return; }
+    watchId.current = navigator.geolocation.watchPosition(
+      p => setPos({lat: p.coords.latitude, lng: p.coords.longitude, acc: Math.round(p.coords.accuracy)}),
+      e => setGpsError("GPS error: " + e.message),
+      { enableHighAccuracy: true, maximumAge: 3000, timeout: 10000 }
+    );
+    return () => { if(watchId.current) navigator.geolocation.clearWatch(watchId.current); };
+  },[]);
+
+  // Create or join live round in Firebase
+  useEffect(()=>{
+    if(!course) return;
+    const rid = "round_" + currentUser.uid + "_" + course.id + "_" + new Date().toDateString().replace(/ /g,"_");
+    setRoundId(rid);
+    const unsub = onSnapshot(doc(db,"dtg_rounds",rid), snap=>{
+      if(snap.exists()) setLiveRound(snap.data());
+      else {
+        const init = {
+          id:rid, courseId:course.id, courseName:course.name||"Unknown Course",
+          createdBy:currentUser.uid, createdByName:currentUser.displayName||"",
+          currentHole:1, startedAt:new Date().toISOString(),
+          players:{ [currentUser.uid]: { name:currentUser.displayName||"", scores:{}, total:0 } }
+        };
+        setDoc(doc(db,"dtg_rounds",rid), init);
+        setLiveRound(init);
+      }
+    });
+    return ()=>unsub();
+  },[course, currentUser]);
+
+  // Distances
+  const teeYards  = haversineYards(pos?.lat, pos?.lng, hole.teeLat,   hole.teeLng);
+  const frontYds  = haversineYards(pos?.lat, pos?.lng, hole.frontLat,  hole.frontLng);
+  const centerYds = haversineYards(pos?.lat, pos?.lng, hole.centerLat, hole.centerLng);
+  const backYds   = haversineYards(pos?.lat, pos?.lng, hole.backLat,   hole.backLng);
+
+  async function saveScore(strokes){
+    if(!roundId||!strokes) return;
+    const newScores = {...(liveRound?.players?.[currentUser.uid]?.scores||{}), [holeIdx+1]: strokes};
+    const total = Object.values(newScores).reduce((s,v)=>s+(+v||0),0);
+    await setDoc(doc(db,"dtg_rounds",roundId),{
+      ...liveRound,
+      currentHole: Math.min(holeIdx+2, totalHoles),
+      players: {
+        ...liveRound?.players,
+        [currentUser.uid]: { name:currentUser.displayName||"", scores:newScores, total }
+      }
+    },{merge:true});
+    setShowScore(false);
+    if(holeIdx < totalHoles-1) setHoleIdx(h=>h+1);
+  }
+
+  const myScore = liveRound?.players?.[currentUser.uid]?.scores?.[holeIdx+1];
+  const myTotal = liveRound?.players?.[currentUser.uid]?.total||0;
+  const allPlayers = Object.values(liveRound?.players||{}).sort((a,b)=>a.total-b.total);
+
+  // Score entry modal
+  if(showScore){
+    return(
+      <div style={{position:"fixed",inset:0,zIndex:600,background:"rgba(0,0,0,.9)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+        <div style={{background:C.card,border:"1px solid rgba(42,107,52,.3)",borderRadius:20,padding:"28px 24px",width:"100%",maxWidth:380}}>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:18,fontWeight:700,color:C.cream,marginBottom:6}}>Hole {holeIdx+1} Score</div>
+          <div style={{fontSize:13,color:C.creamMuted,marginBottom:20}}>Par {hole.par||4}</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:8,marginBottom:20}}>
+            {[1,2,3,4,5,6,7,8,9,10].map(n=>(
+              <button key={n} onClick={()=>{setScoreEntry({[holeIdx+1]:n});}} style={{padding:"14px 0",borderRadius:10,border:scoreEntry[holeIdx+1]===n?"2px solid "+C.goldLight:"1px solid rgba(42,107,52,.3)",background:scoreEntry[holeIdx+1]===n?`linear-gradient(135deg,${C.gold},${C.goldDim})`:"rgba(5,14,6,.7)",color:scoreEntry[holeIdx+1]===n?"#0a1a0c":C.cream,fontFamily:"'Cinzel',serif",fontSize:16,fontWeight:700,cursor:"pointer"}}>
+                {n}
+              </button>
+            ))}
+          </div>
+          <div style={{display:"flex",gap:10}}>
+            <button onClick={()=>setShowScore(false)} style={{flex:1,background:"rgba(255,255,255,.05)",border:"none",borderRadius:10,color:C.creamMuted,padding:"13px",fontSize:14,cursor:"pointer"}}>Cancel</button>
+            <button onClick={()=>saveScore(scoreEntry[holeIdx+1])} disabled={!scoreEntry[holeIdx+1]} style={{flex:2,background:scoreEntry[holeIdx+1]?`linear-gradient(135deg,${C.gold},${C.goldDim})`:"rgba(60,60,60,.3)",border:"none",borderRadius:10,color:scoreEntry[holeIdx+1]?"#0a1a0c":C.creamMuted,padding:"13px",fontSize:14,fontWeight:700,cursor:scoreEntry[holeIdx+1]?"pointer":"not-allowed"}}>Save Score</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Leaderboard modal
+  if(showLeader){
+    return(
+      <div style={{position:"fixed",inset:0,zIndex:600,background:"rgba(0,0,0,.9)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+        <div style={{background:C.card,border:"1px solid rgba(42,107,52,.3)",borderRadius:20,padding:"24px",width:"100%",maxWidth:400,maxHeight:"80vh",overflowY:"auto"}}>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:16,fontWeight:700,color:C.cream,marginBottom:16}}>🏆 Live Leaderboard</div>
+          {allPlayers.map((p,i)=>(
+            <div key={p.name} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 14px",background:i===0?"rgba(201,162,39,.1)":"rgba(13,32,16,.7)",border:i===0?"1px solid rgba(201,162,39,.3)":"1px solid rgba(42,107,52,.15)",borderRadius:12,marginBottom:8}}>
+              <div style={{fontFamily:"'Cinzel',serif",fontSize:20,color:i===0?C.goldLight:C.creamMuted,fontWeight:700,width:28}}>{i===0?"👑":i+1}</div>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:600,fontSize:14,color:C.cream}}>{p.name}</div>
+                <div style={{fontSize:11,color:C.creamMuted,marginTop:2}}>{Object.keys(p.scores||{}).length} holes played</div>
+              </div>
+              <div style={{fontFamily:"'Cinzel',serif",fontSize:22,fontWeight:700,color:i===0?C.goldLight:C.cream}}>{p.total||"—"}</div>
+            </div>
+          ))}
+          <button onClick={()=>setShowLeader(false)} style={{width:"100%",background:"rgba(255,255,255,.05)",border:"none",borderRadius:10,color:C.creamMuted,padding:"12px",fontSize:14,cursor:"pointer",marginTop:8}}>Close</button>
+        </div>
+      </div>
+    );
+  }
+
+  return(
+    <div style={{minHeight:"100vh",background:C.bg,fontFamily:"'DM Sans',sans-serif",color:C.cream}}>
+      {/* Header */}
+      <div style={{background:"#1e4d26",borderBottom:"1px solid rgba(201,162,39,.2)",padding:"16px 20px 12px"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+          <button onClick={onClose} style={{background:"rgba(255,255,255,.06)",border:"none",borderRadius:8,color:C.creamMuted,padding:"7px 12px",fontSize:12,cursor:"pointer"}}>← Exit</button>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:14,fontWeight:700,color:C.goldLight,textAlign:"center"}}>{course?.name||"Round"}</div>
+          <button onClick={()=>setShowLeader(true)} style={{background:"rgba(201,162,39,.15)",border:"1px solid rgba(201,162,39,.3)",borderRadius:8,color:C.gold,padding:"7px 12px",fontSize:12,cursor:"pointer",fontWeight:600}}>🏆 Board</button>
+        </div>
+        {/* Hole navigator */}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:4}}>
+          <button onClick={()=>setHoleIdx(h=>Math.max(0,h-1))} disabled={holeIdx===0} style={{background:"rgba(255,255,255,.06)",border:"none",borderRadius:8,color:holeIdx===0?C.creamMuted:C.cream,padding:"10px 16px",fontSize:18,cursor:holeIdx===0?"default":"pointer"}}>‹</button>
+          <div style={{textAlign:"center"}}>
+            <div style={{fontSize:10,color:C.creamMuted,letterSpacing:2}}>HOLE</div>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:40,fontWeight:700,color:C.cream,lineHeight:1}}>{holeIdx+1}</div>
+            <div style={{fontSize:12,color:C.creamMuted}}>Par {hole.par||4} · of {totalHoles}</div>
+          </div>
+          <button onClick={()=>setHoleIdx(h=>Math.min(totalHoles-1,h+1))} disabled={holeIdx===totalHoles-1} style={{background:"rgba(255,255,255,.06)",border:"none",borderRadius:8,color:holeIdx===totalHoles-1?C.creamMuted:C.cream,padding:"10px 16px",fontSize:18,cursor:holeIdx===totalHoles-1?"default":"pointer"}}>›</button>
+        </div>
+      </div>
+
+      <div style={{padding:"20px",maxWidth:480,margin:"0 auto"}}>
+        {/* GPS accuracy */}
+        {pos&&<div style={{fontSize:11,color:C.greenBright,textAlign:"center",marginBottom:12}}>📍 GPS ±{pos.acc}m</div>}
+        {gpsError&&<div style={{background:"rgba(192,64,64,.1)",border:"1px solid rgba(192,64,64,.3)",borderRadius:10,padding:"10px 14px",fontSize:12,color:"#e07070",marginBottom:12}}>{gpsError}</div>}
+
+        {/* Distances */}
+        <div style={{background:"rgba(13,32,16,.85)",border:"1px solid rgba(42,107,52,.25)",borderRadius:16,padding:"20px",marginBottom:16}}>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:11,color:C.creamMuted,letterSpacing:2,marginBottom:14}}>DISTANCES TO GREEN</div>
+          {[
+            {label:"Front",yards:frontYds,color:C.greenBright},
+            {label:"Center",yards:centerYds,color:C.goldLight},
+            {label:"Back",yards:backYds,color:"rgba(200,100,100,.9)"},
+          ].map(d=>(
+            <div key={d.label} style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,padding:"10px 14px",background:"rgba(5,14,6,.5)",borderRadius:10}}>
+              <div style={{fontSize:13,color:C.creamMuted}}>{d.label}</div>
+              <div style={{fontFamily:"'Cinzel',serif",fontSize:26,fontWeight:700,color:d.color}}>
+                {d.yards!=null ? d.yards : <span style={{fontSize:16,color:C.creamMuted}}>—</span>}
+                {d.yards!=null && <span style={{fontSize:13,color:C.creamMuted,marginLeft:4}}>yds</span>}
+              </div>
+            </div>
+          ))}
+          {!hole.centerLat && (
+            <div style={{fontSize:11,color:C.creamMuted,textAlign:"center",marginTop:4}}>
+              ⚠️ No GPS coordinates for this hole yet — add them in Admin → Courses
+            </div>
+          )}
+        </div>
+
+        {/* My score this hole */}
+        <div style={{display:"flex",gap:12,marginBottom:16}}>
+          <div style={{flex:1,background:myScore?"linear-gradient(135deg,rgba(26,77,36,.3),rgba(201,162,39,.1))":"rgba(13,32,16,.8)",border:myScore?"1px solid rgba(201,162,39,.3)":"1px solid rgba(42,107,52,.2)",borderRadius:14,padding:"16px",textAlign:"center"}}>
+            <div style={{fontSize:11,color:C.creamMuted,letterSpacing:2,marginBottom:6}}>MY SCORE</div>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:32,fontWeight:700,color:myScore?C.goldLight:C.creamMuted}}>{myScore||"—"}</div>
+            {myScore&&<div style={{fontSize:11,color:C.creamMuted,marginTop:4}}>{myScore-(hole.par||4)>0?"+"+(myScore-(hole.par||4)):myScore-(hole.par||4)===0?"E":myScore-(hole.par||4)} vs par</div>}
+          </div>
+          <div style={{flex:1,background:"rgba(13,32,16,.8)",border:"1px solid rgba(42,107,52,.2)",borderRadius:14,padding:"16px",textAlign:"center"}}>
+            <div style={{fontSize:11,color:C.creamMuted,letterSpacing:2,marginBottom:6}}>ROUND TOTAL</div>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:32,fontWeight:700,color:C.cream}}>{myTotal||"—"}</div>
+          </div>
+        </div>
+
+        {/* Enter score button */}
+        <button onClick={()=>{setScoreEntry({});setShowScore(true);}} style={{width:"100%",background:`linear-gradient(135deg,${C.gold},${C.goldDim})`,border:"none",borderRadius:14,color:"#0a1a0c",padding:"16px",fontSize:15,fontWeight:700,cursor:"pointer",letterSpacing:1,fontFamily:"'Cinzel',sans-serif",marginBottom:12}}>
+          {myScore?"✏️ EDIT SCORE":"⛳ ENTER SCORE"} — Hole {holeIdx+1}
+        </button>
+
+        {/* Hole dots */}
+        <div style={{display:"flex",gap:4,justifyContent:"center",flexWrap:"wrap",marginTop:8}}>
+          {holes.map((_,i)=>{
+            const s=liveRound?.players?.[currentUser.uid]?.scores?.[i+1];
+            return(
+              <button key={i} onClick={()=>setHoleIdx(i)} style={{width:24,height:24,borderRadius:"50%",border:"none",cursor:"pointer",fontSize:9,fontWeight:700,background:i===holeIdx?C.gold:s?"rgba(42,107,52,.6)":"rgba(42,107,52,.2)",color:i===holeIdx?"#0a1a0c":s?C.greenBright:C.creamMuted}}>{i+1}</button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ─── SPEECH UTILS ─────────────────────────────────────────────────────────────
 function pickFemaleVoice(){
